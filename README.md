@@ -12,12 +12,33 @@ Serverless Vercel service for YouTube upload integration.
 
 ## Environment Variables
 
-Required environment variables:
+### Required Variables
 
-- `SUPABASE_URL` - Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (for bypassing RLS)
-- `FRONTEND_URL` - Frontend URL for CORS
-- `PORT` - Server port (default: 4001)
+These variables **must** be set for the service to work:
+
+| Variable | Description | Where to get it |
+|----------|-------------|-----------------|
+| `SUPABASE_URL` | Your Supabase project URL | Supabase Dashboard → Settings → API → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (bypasses RLS) | Supabase Dashboard → Settings → API → service_role key (⚠️ Keep secret!) |
+| `FRONTEND_URL` | Your frontend URL for CORS | Your production frontend URL (e.g., `https://fyle-cloud.com`) |
+
+### Optional Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Server port (local dev only) | `4001` |
+| `NODE_ENV` | Node environment | Automatically set by Vercel |
+| `VERCEL` | Vercel detection flag | Automatically set by Vercel |
+
+### Setting Variables
+
+**For Local Development:**
+1. Copy `env.example` to `.env.local`
+2. Fill in the required values
+
+**For Vercel Deployment:**
+1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables
+2. Add all required variables for Production, Preview, and Development environments
 
 ## Development
 
