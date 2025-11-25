@@ -1,0 +1,157 @@
+// Supabase service for YouTube uploads
+import { getSupabaseClient } from '../lib/supabaseClient.js';
+
+export class SupabaseService {
+  /**
+   * Get file metadata by ID
+   */
+  async getFile(fileId: string): Promise<any | null> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        throw new Error('Supabase client not initialized');
+      }
+
+      const { data, error } = await supabase
+        .from('files')
+        .select('*')
+        .eq('id', fileId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching file:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error: any) {
+      console.error('Exception fetching file:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get user's plan from profiles table
+   */
+  async getUserPlan(userId: string): Promise<string> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        return 'free';
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('plan')
+        .eq('id', userId)
+        .single();
+
+      if (error || !data) {
+        console.error('Error fetching user plan:', error);
+        return 'free';
+      }
+
+      return data.plan || 'free';
+    } catch (error) {
+      console.error('Exception fetching user plan:', error);
+      return 'free';
+    }
+  }
+
+  /**
+   * Count user's YouTube uploads this month
+   */
+  async getMonthlyUploadCount(userId: string): Promise<number> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        return 0;
+      }
+
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const { count, error } = await supabase
+        .from('youtube_uploads')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('created_at', startOfMonth.toISOString());
+
+      if (error) {
+        console.error('Error counting monthly uploads:', error);
+        return 0;
+      }
+
+      return count || 0;
+    } catch (error) {
+      console.error('Exception counting monthly uploads:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Create YouTube upload record
+   */
+  async createYouTubeUpload(data: {
+    user_id: string;
+    file_id: string;
+    title: string;
+    description?: string | null;
+    tags?: string[] | null;
+    thumbnail_url?: string | null;
+    scheduled_at?: string | null;
+    status: string;
+  }): Promise<any> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        throw new Error('Supabase client not initialized');
+      }
+
+      const { data: result, error } = await supabase
+        .from('youtube_uploads')
+        .insert(data)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating YouTube upload:', error);
+        throw error;
+      }
+
+      return result;
+    } catch (error: any) {
+      console.error('Exception creating YouTube upload:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get user's YouTube uploads
+   */
+  async getYouTubeUploads(userId: string): Promise<any[]> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        return [];
+      }
+
+      const { data, error } = await supabase
+        .from('youtube_uploads')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching YouTube uploads:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Exception fetching YouTube uploads:', error);
+      return [];
+    }
+  }
+}
+
