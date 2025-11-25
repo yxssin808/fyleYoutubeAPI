@@ -1,7 +1,14 @@
 // Supabase service for YouTube uploads
 import { getSupabaseClient } from '../lib/supabaseClient.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export class SupabaseService {
+  /**
+   * Get Supabase client
+   */
+  get client(): SupabaseClient | null {
+    return getSupabaseClient();
+  }
   /**
    * Get file metadata by ID
    */

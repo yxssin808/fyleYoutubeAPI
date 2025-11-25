@@ -1,10 +1,5 @@
-// YouTube upload routes
+// Description templates routes
 import { Router } from 'express';
-import {
-  createYouTubeUploadController,
-  getYouTubeUploadsController,
-  getYouTubeLimitsController,
-} from '../controllers/youtube.controller.js';
 import {
   getTemplatesController,
   createTemplateController,
@@ -14,16 +9,6 @@ import {
 
 const router = Router();
 
-// POST /api/youtube/upload - Create a YouTube upload request
-router.post('/upload', createYouTubeUploadController);
-
-// GET /api/youtube/uploads - Get user's YouTube uploads
-router.get('/uploads', getYouTubeUploadsController);
-
-// GET /api/youtube/limits - Get user's YouTube upload limits
-router.get('/limits', getYouTubeLimitsController);
-
-// Templates routes
 // GET /api/youtube/templates - Get user's templates
 router.get('/templates', getTemplatesController);
 
@@ -36,5 +21,5 @@ router.put('/templates/:id', updateTemplateController);
 // DELETE /api/youtube/templates/:id - Delete a template
 router.delete('/templates/:id', deleteTemplateController);
 
-export { router as youtubeRouter };
+export { router as templatesRouter };
 
