@@ -95,10 +95,10 @@ export class VideoProcessingService {
         .outputOptions(['-c:v', 'libx264', '-preset', 'medium', '-crf', '23']) // Video encoding
         .outputOptions(['-c:a', 'aac', '-b:a', '192k']) // Audio encoding
         .output(videoPath)
-        .on('start', (cmd) => {
+        .on('start', (cmd: string) => {
           console.log('🎬 FFmpeg command:', cmd);
         })
-        .on('progress', (progress) => {
+        .on('progress', (progress: { percent?: number }) => {
           if (progress.percent) {
             console.log(`📹 Video processing: ${Math.round(progress.percent)}%`);
           }
@@ -121,7 +121,7 @@ export class VideoProcessingService {
             reject(error);
           }
         })
-        .on('error', async (err) => {
+        .on('error', async (err: Error) => {
           console.error('❌ FFmpeg error:', err);
           // Cleanup on error
           await this.cleanupTempFile(audioPath);
