@@ -69,8 +69,9 @@ export class YouTubeService {
             categoryId: options.categoryId || '10', // Music category
           },
           status: {
-            privacyStatus: options.privacyStatus || 'private',
+            privacyStatus: options.privacyStatus || 'public',
             selfDeclaredMadeForKids: false,
+            madeForKids: false, // Explicitly set to false to prevent Shorts classification
           },
         },
         media: {

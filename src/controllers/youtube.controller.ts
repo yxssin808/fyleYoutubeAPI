@@ -10,6 +10,7 @@ interface YouTubeUploadRequest {
   tags?: string[];
   thumbnailUrl?: string;
   scheduledAt?: string; // ISO date string
+  privacyStatus?: 'public' | 'unlisted' | 'private';
 }
 
 interface PlanLimits {
@@ -86,6 +87,7 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
       tags,
       thumbnailUrl,
       scheduledAt,
+      privacyStatus,
     }: YouTubeUploadRequest = req.body;
 
     console.log('🎬 YouTube upload request:', {
@@ -201,6 +203,12 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
       }
     }
 
+    // Validate privacy status
+    const validPrivacyStatuses = ['public', 'unlisted', 'private'];
+    const sanitizedPrivacyStatus = privacyStatus && validPrivacyStatuses.includes(privacyStatus)
+      ? privacyStatus
+      : 'public'; // Default to public
+
     // Create YouTube upload record
     const uploadRecord = await supabaseService.createYouTubeUpload({
       user_id: sanitizedUserId,
@@ -210,6 +218,7 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
       tags: sanitizedTags.length > 0 ? sanitizedTags : null,
       thumbnail_url: thumbnailUrl ? sanitizeString(thumbnailUrl) : null,
       scheduled_at: scheduledDate ? scheduledDate.toISOString() : null,
+      privacy_status: sanitizedPrivacyStatus as 'public' | 'unlisted' | 'private',
       status: 'pending',
     });
 

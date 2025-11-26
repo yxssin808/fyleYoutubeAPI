@@ -187,7 +187,8 @@ export class VideoProcessingService {
         // Use 'fast' preset as compromise (better quality, still fast)
         .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28']) // Lower CRF = higher quality but larger file
         .outputOptions(['-c:a', 'aac', '-b:a', '128k']) // Lower audio bitrate to reduce file size
-        .outputOptions(['-vf', 'scale=1280:720']) // Ensure consistent resolution (YouTube minimum)
+        .outputOptions(['-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2']) // Ensure 16:9 aspect ratio (prevents Shorts classification)
+        .outputOptions(['-aspect', '16:9']) // Explicitly set aspect ratio to 16:9
         .outputOptions(['-max_muxing_queue_size', '1024']) // Prevent queue overflow
         .output(videoPath)
         .on('start', (cmd: string) => {

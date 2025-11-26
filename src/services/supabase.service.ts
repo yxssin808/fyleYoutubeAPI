@@ -107,6 +107,7 @@ export class SupabaseService {
     tags?: string[] | null;
     thumbnail_url?: string | null;
     scheduled_at?: string | null;
+    privacy_status?: 'public' | 'unlisted' | 'private';
     status: string;
   }): Promise<any> {
     try {

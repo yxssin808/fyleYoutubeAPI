@@ -223,7 +223,7 @@ export class UploadProcessorService {
           description: upload.description || undefined,
           tags: upload.tags || undefined,
           thumbnailUrl: upload.thumbnail_url || undefined, // Still upload as custom thumbnail
-          privacyStatus: 'private', // Default to private, user can change later
+          privacyStatus: (upload.privacy_status as 'public' | 'unlisted' | 'private') || 'public', // Default to public
         });
 
         // Update upload record with success
