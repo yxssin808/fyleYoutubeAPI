@@ -29,6 +29,17 @@ if (!envLoaded) {
   console.log(`✅ Supabase env snapshot: ${supabaseKeys}`);
 }
 
+// Debug: Check Google OAuth environment variables on startup
+console.log('🔍 Google OAuth Environment Variables Check:', {
+  hasGOOGLE_CLIENT_ID: !!process.env.GOOGLE_CLIENT_ID,
+  hasGOOGLE_CLIENT_SECRET: !!process.env.GOOGLE_CLIENT_SECRET,
+  hasGOOGLE_REDIRECT_URI: !!process.env.GOOGLE_REDIRECT_URI,
+  clientIdLength: process.env.GOOGLE_CLIENT_ID?.length || 0,
+  clientSecretLength: process.env.GOOGLE_CLIENT_SECRET?.length || 0,
+  clientIdPreview: process.env.GOOGLE_CLIENT_ID ? `${process.env.GOOGLE_CLIENT_ID.substring(0, 30)}...` : 'MISSING',
+  allGoogleKeys: Object.keys(process.env).filter(key => key.includes('GOOGLE')).join(', '),
+});
+
 const app = express();
 const PORT = Number(process.env.PORT || 4001);
 
@@ -134,13 +145,30 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   });
 });
 
-// For Vercel serverless, export the handler
-export default app;
-
-// For local development, start the server
-if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`🚀 YouTube API listening on port ${PORT}`);
-  });
-}
+// Start the server (Railway or local development)
+app.listen(PORT, () => {
+  console.log(`🚀 YouTube API listening on port ${PORT}`);
+  console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🎬 FFmpeg: Available for video processing`);
+  
+  // Final check of critical environment variables
+  const criticalVars = {
+    SUPABASE_URL: !!process.env.SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    GOOGLE_CLIENT_ID: !!process.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: !!process.env.GOOGLE_CLIENT_SECRET,
+    FRONTEND_URL: !!process.env.FRONTEND_URL,
+  };
+  
+  const missingVars = Object.entries(criticalVars)
+    .filter(([_, exists]) => !exists)
+    .map(([key]) => key);
+  
+  if (missingVars.length > 0) {
+    console.error(`❌ Missing critical environment variables: ${missingVars.join(', ')}`);
+    console.error('   Please set these in Railway → Variables');
+  } else {
+    console.log('✅ All critical environment variables are set');
+  }
+});
 

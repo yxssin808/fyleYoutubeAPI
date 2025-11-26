@@ -8,12 +8,20 @@ import { OAuthService } from '../services/oauth.service.js';
  * Generate OAuth authorization URL
  */
 export const authorizeController = async (req: Request, res: Response) => {
+  // Debug: Log all Google-related environment variables
   console.log('🔐 OAuth authorize request received:', {
     method: req.method,
     url: req.url,
     body: req.body,
+  });
+  
+  console.log('🔍 Environment Variables Check:', {
     hasClientId: !!process.env.GOOGLE_CLIENT_ID,
     hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+    clientIdLength: process.env.GOOGLE_CLIENT_ID?.length || 0,
+    clientSecretLength: process.env.GOOGLE_CLIENT_SECRET?.length || 0,
+    clientIdPreview: process.env.GOOGLE_CLIENT_ID ? `${process.env.GOOGLE_CLIENT_ID.substring(0, 30)}...` : 'MISSING',
+    allEnvKeys: Object.keys(process.env).filter(key => key.includes('GOOGLE') || key.includes('CLIENT')).join(', '),
   });
 
   try {
