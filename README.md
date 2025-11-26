@@ -1,12 +1,12 @@
 # YouTube API
 
-Serverless Vercel service for YouTube upload integration.
+Railway service for YouTube upload integration with FFmpeg video processing.
 
 ## Features
 
 - **YouTube Upload Integration**: Full YouTube Data API v3 integration
 - **OAuth2 Authentication**: Google OAuth2 for YouTube API access
-- **Video Creation**: Automatic MP4 video creation from audio + thumbnail using FFmpeg
+- **Video Creation**: Automatic MP4 video creation from audio + thumbnail using FFmpeg (directly in this service)
 - **Video Upload**: Automatic video upload to YouTube with metadata
 - **Job Queue System**: Asynchronous processing of uploads
 - **Plan-based Limits**: Free: 4/month, Bedroom: 30/month, Pro/Studio: unlimited
@@ -15,6 +15,31 @@ Serverless Vercel service for YouTube upload integration.
 - **Thumbnail Support**: Images/GIFs up to 7MB (converted to video background)
 - **Delete Functionality**: Delete uploads and YouTube videos
 - **Status Tracking**: Real-time status updates (pending → processing → uploaded/failed)
+
+## Prerequisites
+
+### FFmpeg Installation
+
+**FFmpeg is automatically installed via Dockerfile** when deploying to Railway. No manual installation needed!
+
+For local development, install FFmpeg:
+
+**macOS:**
+```bash
+brew install ffmpeg
+```
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg
+```
+
+**Windows:**
+Download from [FFmpeg official website](https://ffmpeg.org/download.html) or use Chocolatey:
+```bash
+choco install ffmpeg
+```
 
 ## Environment Variables
 
@@ -30,16 +55,14 @@ These variables **must** be set for the service to work:
 | `GOOGLE_CLIENT_ID` | Google OAuth2 Client ID | Google Cloud Console → APIs & Services → Credentials |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth2 Client Secret | Google Cloud Console → APIs & Services → Credentials |
 | `GOOGLE_REDIRECT_URI` | OAuth2 redirect URI | Your frontend OAuth callback URL (e.g., `https://fyle-cloud.com/youtube/oauth/callback`) |
-| `API_BASE_URL` | Main API service URL (with FFmpeg) | Your main API service URL (e.g., `https://fyle-api.vercel.app`) |
 | `STORAGE_API_URL` | Storage service URL | Your storage service URL (e.g., `https://fylestorage.vercel.app/api`) |
 
 ### Optional Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | Server port (local dev only) | `4001` |
-| `NODE_ENV` | Node environment | Automatically set by Vercel |
-| `VERCEL` | Vercel detection flag | Automatically set by Vercel |
+| `PORT` | Server port | `4001` (Railway sets this automatically) |
+| `NODE_ENV` | Node environment | Automatically set by Railway |
 
 ### Setting Variables
 
@@ -47,36 +70,69 @@ These variables **must** be set for the service to work:
 1. Copy `env.example` to `.env.local`
 2. Fill in the required values
 
-**For Vercel Deployment:**
-1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables
-2. Add all required variables for Production, Preview, and Development environments
-
-## Prerequisites
-
-### API Service with FFmpeg
-
-**This service delegates video processing to the main API service**, which already has FFmpeg installed. 
-
-**No FFmpeg installation needed here!** The video creation is handled by the main API service (`api/`), which runs on a platform that supports FFmpeg (Railway, Render, etc.).
-
-Make sure to set `API_BASE_URL` environment variable pointing to your main API service.
+**For Railway Deployment:**
+1. Go to Railway Dashboard → Your Project → Variables
+2. Add all required variables
+3. Railway will automatically use these in production
 
 ## Development
 
 ```bash
+# Install dependencies
 npm install
+
+# Make sure FFmpeg is installed locally (see Prerequisites)
+
+# Start development server
 npm run dev
 ```
 
-## Deployment
+The service will be available at `http://localhost:4001`.
 
-Deploy to Vercel:
+## Deployment to Railway
 
-```bash
-vercel
+### Step 1: Create Railway Project
+
+1. Go to [Railway](https://railway.app)
+2. Click **"New Project"**
+3. Select **"Deploy from GitHub repo"** (or use Railway CLI)
+4. Select your repository and the `youtube-api` directory
+
+### Step 2: Configure Build Settings
+
+Railway will automatically detect the `Dockerfile` and `railway.json` configuration:
+
+- **Builder**: Dockerfile (automatically detected)
+- **Start Command**: `npm start` (from railway.json)
+- **Port**: Railway sets `PORT` automatically
+
+### Step 3: Set Environment Variables
+
+In Railway Dashboard → Your Project → Variables, add all required environment variables:
+
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+FRONTEND_URL=https://fyle-cloud.com
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=https://fyle-cloud.com/youtube/oauth/callback
+STORAGE_API_URL=https://fylestorage.vercel.app/api
 ```
 
-The service will be available at your Vercel deployment URL.
+### Step 4: Deploy
+
+Railway will automatically:
+1. Build the Docker image (installs FFmpeg)
+2. Install dependencies
+3. Build TypeScript
+4. Start the server
+
+### Step 5: Get Your Service URL
+
+1. Railway will provide a public URL (e.g., `https://youtube-api-production.up.railway.app`)
+2. Update your frontend to use this URL instead of the Vercel URL
+3. The service is now ready to use!
 
 ## API Endpoints
 
@@ -105,16 +161,9 @@ Get user's YouTube uploads.
 
 Get user's YouTube upload limits based on their plan.
 
-### DELETE `/api/youtube/upload/:id`
+### DELETE `/api/youtube/upload/:id?userId=string`
 
 Delete a YouTube upload and associated video.
-
-**Request Body:**
-```json
-{
-  "userId": "string"
-}
-```
 
 ### POST `/api/youtube/process`
 
@@ -169,8 +218,7 @@ Manually trigger processing of pending uploads (internal/admin use).
 2. If not scheduled, upload is queued immediately
 3. Background processor:
    - Gets audio file URL from CDN/S3
-   - **Calls main API service** to create MP4 video (audio + thumbnail)
-   - Downloads the created video stream
+   - **Creates MP4 video directly using FFmpeg** (audio + thumbnail)
    - Uploads MP4 video to YouTube using OAuth2 tokens
    - Uploads thumbnail as custom thumbnail (if provided)
    - Updates status to `uploaded` or `failed`
@@ -178,11 +226,12 @@ Manually trigger processing of pending uploads (internal/admin use).
 
 ## Video Creation
 
-The service automatically creates MP4 videos from audio files:
+The service automatically creates MP4 videos from audio files using FFmpeg:
 - **With Thumbnail**: Audio + thumbnail image (looped for entire duration)
 - **Without Thumbnail**: Audio + black background (1280x720)
 - **Format**: MP4 (H.264 video, AAC audio) - YouTube compatible
 - **Resolution**: 1280x720 (720p)
+- **Processing**: Done directly in this service (no external API calls needed)
 
 ## Plan Limits
 
@@ -191,3 +240,40 @@ The service automatically creates MP4 videos from audio files:
 - **Pro**: Unlimited uploads, MP3 + WAV
 - **Studio**: Unlimited uploads, MP3 + WAV
 
+## Troubleshooting
+
+### FFmpeg Not Found
+
+If you see `FFmpeg not found` errors:
+
+1. **Local Development**: Make sure FFmpeg is installed (see Prerequisites)
+2. **Railway**: The Dockerfile automatically installs FFmpeg. If it's not working, check the build logs.
+
+### Video Processing Fails
+
+- Check Railway logs for FFmpeg errors
+- Ensure audio file is accessible (CDN URL, public URL, or signed URL)
+- Check thumbnail URL is valid (if provided)
+
+### OAuth Errors
+
+See the troubleshooting guides:
+- `FIX_REDIRECT_URI_MISMATCH.md` - For redirect URI errors
+- `FIX_OAUTH_ACCESS_DENIED.md` - For access denied errors
+
+## Architecture
+
+This service runs as a **standalone Railway service** with:
+- **Express.js** server
+- **FFmpeg** for video processing (installed via Dockerfile)
+- **Direct video creation** (no external API calls)
+- **Background job processing** (reliable on Railway, unlike Vercel Serverless)
+
+## Migration from Vercel
+
+If you were previously using this service on Vercel:
+
+1. **Remove Vercel-specific code**: Already done (no more `export default app`)
+2. **Update frontend URL**: Point to your Railway service URL
+3. **Remove `API_BASE_URL`**: No longer needed (FFmpeg is in this service)
+4. **Deploy to Railway**: Follow the deployment steps above

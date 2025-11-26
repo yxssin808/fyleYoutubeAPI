@@ -1,24 +1,22 @@
 // Upload processor service for handling YouTube uploads
 import { YouTubeService } from './youtube.service.js';
-import { FileService } from './file.service.js';
 import { OAuthService } from './oauth.service.js';
 import { SupabaseService } from './supabase.service.js';
+import { VideoProcessingService } from './video-processing.service.js';
 import axios from 'axios';
-import { Readable } from 'stream';
+import { createReadStream } from 'fs';
 
 export class UploadProcessorService {
   private youtubeService: YouTubeService;
   private oauthService: OAuthService;
   private supabaseService: SupabaseService;
-  private apiBaseUrl: string;
+  private videoProcessingService: VideoProcessingService;
 
   constructor() {
     this.youtubeService = new YouTubeService();
     this.oauthService = new OAuthService();
     this.supabaseService = new SupabaseService();
-    // Use API_BASE_URL or default to the main API service
-    this.apiBaseUrl = process.env.API_BASE_URL || process.env.BACKEND_URL || 'https://fyle-api.vercel.app';
-    console.log(`📡 API Base URL configured: ${this.apiBaseUrl}`);
+    this.videoProcessingService = new VideoProcessingService();
   }
 
   /**
@@ -58,17 +56,54 @@ export class UploadProcessorService {
       console.log(`📥 Getting file URL: ${upload.file_id}`);
       
       // Get file metadata to find CDN URL
+      console.log(`   Getting Supabase client...`);
       const supabase = this.supabaseService.client;
       if (!supabase) {
+        console.error('❌ Supabase client is null');
         throw new Error('Supabase client not initialized');
       }
       
+      console.log(`   ✅ Supabase client obtained`);
       console.log(`   Querying Supabase for file: ${upload.file_id}`);
-      const { data: fileData, error: fileError } = await supabase
+      console.log(`   Starting query at: ${new Date().toISOString()}`);
+      
+      // Add timeout to Supabase query
+      const queryPromise = supabase
         .from('files')
         .select('cdn_url, s3_key, path, user_id')
         .eq('id', upload.file_id)
         .single();
+      
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          console.error('❌ Supabase query timeout after 30 seconds');
+          reject(new Error('Supabase query timeout after 30 seconds'));
+        }, 30000);
+      });
+      
+      let fileData: any;
+      let fileError: any;
+      
+      try {
+        console.log(`   Waiting for Supabase response...`);
+        const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+        console.log(`   ✅ Supabase query completed at: ${new Date().toISOString()}`);
+        fileData = result.data;
+        fileError = result.error;
+        
+        if (fileError) {
+          console.error('❌ Supabase returned error:', fileError);
+        } else {
+          console.log(`   ✅ Supabase returned data: ${fileData ? 'yes' : 'no'}`);
+        }
+      } catch (error: any) {
+        console.error('❌ Supabase query failed:', {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        });
+        throw new Error(`Supabase query failed: ${error.message}`);
+      }
 
       if (fileError) {
         console.error('❌ File query error:', {
@@ -178,72 +213,54 @@ export class UploadProcessorService {
         throw new Error('Failed to determine audio URL. File has no accessible URL.');
       }
 
-      // Create MP4 video using API service (which has FFmpeg)
-      console.log(`🎬 Creating video from audio + thumbnail via API service...`);
-      console.log(`   API Base URL: ${this.apiBaseUrl}`);
+      // Create MP4 video using FFmpeg directly
+      console.log(`🎬 Creating video from audio + thumbnail using FFmpeg...`);
       console.log(`   Audio URL: ${audioUrl.substring(0, 100)}...`);
       console.log(`   Thumbnail URL: ${upload.thumbnail_url || 'none'}`);
-      console.log(`   About to call API service...`);
       
-      let videoResponse;
+      let videoPath: string;
+      let videoSize: number;
+      
       try {
-        const videoApiUrl = `${this.apiBaseUrl}/api/video/create`;
-        console.log(`   📞 Calling API: ${videoApiUrl}`);
-        console.log(`   Request body: { audioUrl: '${audioUrl.substring(0, 50)}...', thumbnailUrl: '${upload.thumbnail_url || 'null'}' }`);
-        
-        videoResponse = await axios.post(
-          videoApiUrl,
-          {
-            audioUrl: audioUrl,
-            thumbnailUrl: upload.thumbnail_url || null,
-          },
-          {
-            responseType: 'stream',
-            timeout: 600000, // 10 minutes timeout (video processing can take time)
-            validateStatus: (status) => status < 500, // Don't throw on 4xx
-          }
+        const result = await this.videoProcessingService.createVideoFromAudio(
+          audioUrl,
+          upload.thumbnail_url || null
         );
-
-        if (videoResponse.status !== 200) {
-          const errorText = await this.streamToString(videoResponse.data);
-          throw new Error(`API Service returned ${videoResponse.status}: ${errorText}`);
-        }
-
-        console.log(`✅ Video creation request successful (Status: ${videoResponse.status})`);
-        console.log(`   Content-Length: ${videoResponse.headers['content-length'] || 'unknown'}`);
+        videoPath = result.videoPath;
+        videoSize = result.size;
+        console.log(`✅ Video created: ${videoPath} (${(videoSize / 1024 / 1024).toFixed(2)} MB)`);
       } catch (error: any) {
-        console.error(`❌ Failed to create video via API service:`, {
+        console.error(`❌ Failed to create video:`, {
           message: error.message,
-          code: error.code,
-          response: error.response?.data,
-          status: error.response?.status,
-          apiUrl: `${this.apiBaseUrl}/api/video/create`,
-          timeout: error.code === 'ECONNABORTED' ? 'Request timeout' : undefined,
+          stack: error.stack,
         });
         throw new Error(`Video creation failed: ${error.message}`);
       }
 
-      // Upload video stream to YouTube
+      // Upload video to YouTube
       console.log(`📤 Uploading to YouTube: ${upload.title}`);
-      const videoStream = videoResponse.data as Readable;
-      const contentLength = parseInt(videoResponse.headers['content-length'] || '0', 10);
-      console.log(`   Video size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
+      const videoStream = createReadStream(videoPath);
       
-      const { videoId, url } = await this.youtubeService.uploadVideo(videoStream, contentLength, {
-        title: upload.title,
-        description: upload.description || undefined,
-        tags: upload.tags || undefined,
-        thumbnailUrl: upload.thumbnail_url || undefined, // Still upload as custom thumbnail
-        privacyStatus: 'private', // Default to private, user can change later
-      });
+      try {
+        const { videoId, url } = await this.youtubeService.uploadVideo(videoStream, videoSize, {
+          title: upload.title,
+          description: upload.description || undefined,
+          tags: upload.tags || undefined,
+          thumbnailUrl: upload.thumbnail_url || undefined, // Still upload as custom thumbnail
+          privacyStatus: 'private', // Default to private, user can change later
+        });
 
-      // Update upload record with success
-      await this.supabaseService.updateYouTubeUpload(uploadId, {
-        status: 'uploaded',
-        youtube_video_id: videoId,
-      });
+        // Update upload record with success
+        await this.supabaseService.updateYouTubeUpload(uploadId, {
+          status: 'uploaded',
+          youtube_video_id: videoId,
+        });
 
-      console.log(`✅ Upload successful: ${videoId} - ${url}`);
+        console.log(`✅ Upload successful: ${videoId} - ${url}`);
+      } finally {
+        // Cleanup video file after upload
+        await this.videoProcessingService.cleanupVideo(videoPath);
+      }
     } catch (error: any) {
       console.error(`❌ Upload failed: ${error.message}`);
 
@@ -257,17 +274,6 @@ export class UploadProcessorService {
     }
   }
 
-  /**
-   * Helper to convert stream to string for error messages
-   */
-  private async streamToString(stream: Readable): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      stream.on('data', (chunk) => chunks.push(chunk));
-      stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-      stream.on('error', reject);
-    });
-  }
 
   /**
    * Process all pending uploads

@@ -134,13 +134,10 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   });
 });
 
-// For Vercel serverless, export the handler
-export default app;
-
-// For local development, start the server
-if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`🚀 YouTube API listening on port ${PORT}`);
-  });
-}
+// Start the server (Railway or local development)
+app.listen(PORT, () => {
+  console.log(`🚀 YouTube API listening on port ${PORT}`);
+  console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🎬 FFmpeg: Available for video processing`);
+});
 
