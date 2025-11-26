@@ -218,13 +218,21 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
     // Queue upload for processing (if not scheduled)
     if (!scheduledDate) {
       // Process immediately in background (non-blocking)
+      console.log(`🚀 Starting background processing for upload: ${uploadRecord.id}`);
       setImmediate(async () => {
         try {
+          console.log(`📦 Loading UploadProcessorService...`);
           const { UploadProcessorService } = await import('../services/upload-processor.service.js');
           const processor = new UploadProcessorService();
+          console.log(`▶️  Calling processUpload for: ${uploadRecord.id}`);
           await processor.processUpload(uploadRecord.id);
+          console.log(`✅ Background processing completed for: ${uploadRecord.id}`);
         } catch (error: any) {
-          console.error('Background upload processing failed:', error);
+          console.error('❌ Background upload processing failed:', {
+            uploadId: uploadRecord.id,
+            error: error.message,
+            stack: error.stack,
+          });
         }
       });
     }

@@ -29,7 +29,7 @@ export class FileService {
           headers: {
             'Content-Type': 'application/json',
           },
-          timeout: 30000, // 30 seconds timeout
+          timeout: 120000, // 2 minutes timeout (signed URL generation can take time)
         }
       );
 

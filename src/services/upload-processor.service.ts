@@ -20,6 +20,7 @@ export class UploadProcessorService {
     this.supabaseService = new SupabaseService();
     // Use API_BASE_URL or default to the main API service
     this.apiBaseUrl = process.env.API_BASE_URL || process.env.BACKEND_URL || 'https://fyle-api.vercel.app';
+    console.log(`📡 API Base URL configured: ${this.apiBaseUrl}`);
   }
 
   /**
@@ -88,35 +89,71 @@ export class UploadProcessorService {
       } else if (fileData.s3_key) {
         // Get signed URL from Storage API
         const storageApiUrl = process.env.STORAGE_API_URL || '';
+        console.log(`   Requesting signed URL for S3 key: ${fileData.s3_key}`);
         const signedUrlResponse = await axios.post(
           `${storageApiUrl}/api/storage/download-url`,
           {
             objectKey: fileData.s3_key,
             userId: upload.user_id,
+          },
+          {
+            timeout: 120000, // 2 minutes timeout
           }
         );
         audioUrl = signedUrlResponse.data.data.downloadUrl;
+        console.log(`   ✅ Got signed URL: ${audioUrl.substring(0, 100)}...`);
       } else {
         throw new Error('File has no CDN URL or S3 key');
       }
 
       // Create MP4 video using API service (which has FFmpeg)
       console.log(`🎬 Creating video from audio + thumbnail via API service...`);
-      const videoResponse = await axios.post(
-        `${this.apiBaseUrl}/api/video/create`,
-        {
-          audioUrl: audioUrl,
-          thumbnailUrl: upload.thumbnail_url || null,
-        },
-        {
-          responseType: 'stream',
+      console.log(`   API Base URL: ${this.apiBaseUrl}`);
+      console.log(`   Audio URL: ${audioUrl.substring(0, 100)}...`);
+      console.log(`   Thumbnail URL: ${upload.thumbnail_url || 'none'}`);
+      
+      let videoResponse;
+      try {
+        const videoApiUrl = `${this.apiBaseUrl}/api/video/create`;
+        console.log(`   Calling: ${videoApiUrl}`);
+        
+        videoResponse = await axios.post(
+          videoApiUrl,
+          {
+            audioUrl: audioUrl,
+            thumbnailUrl: upload.thumbnail_url || null,
+          },
+          {
+            responseType: 'stream',
+            timeout: 600000, // 10 minutes timeout (video processing can take time)
+            validateStatus: (status) => status < 500, // Don't throw on 4xx
+          }
+        );
+
+        if (videoResponse.status !== 200) {
+          const errorText = await this.streamToString(videoResponse.data);
+          throw new Error(`API Service returned ${videoResponse.status}: ${errorText}`);
         }
-      );
+
+        console.log(`✅ Video creation request successful (Status: ${videoResponse.status})`);
+        console.log(`   Content-Length: ${videoResponse.headers['content-length'] || 'unknown'}`);
+      } catch (error: any) {
+        console.error(`❌ Failed to create video via API service:`, {
+          message: error.message,
+          code: error.code,
+          response: error.response?.data,
+          status: error.response?.status,
+          apiUrl: `${this.apiBaseUrl}/api/video/create`,
+          timeout: error.code === 'ECONNABORTED' ? 'Request timeout' : undefined,
+        });
+        throw new Error(`Video creation failed: ${error.message}`);
+      }
 
       // Upload video stream to YouTube
       console.log(`📤 Uploading to YouTube: ${upload.title}`);
       const videoStream = videoResponse.data as Readable;
       const contentLength = parseInt(videoResponse.headers['content-length'] || '0', 10);
+      console.log(`   Video size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
       
       const { videoId, url } = await this.youtubeService.uploadVideo(videoStream, contentLength, {
         title: upload.title,
@@ -144,6 +181,18 @@ export class UploadProcessorService {
 
       throw error;
     }
+  }
+
+  /**
+   * Helper to convert stream to string for error messages
+   */
+  private async streamToString(stream: Readable): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      stream.on('data', (chunk) => chunks.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+      stream.on('error', reject);
+    });
   }
 
   /**

@@ -33,7 +33,8 @@ const app = express();
 const PORT = Number(process.env.PORT || 4001);
 
 // Trust proxy - required for accurate IP detection behind Railway/proxy/Vercel
-app.set('trust proxy', true);
+// Set to 1 to only trust the first proxy (Vercel), which fixes rate limiting warnings
+app.set('trust proxy', 1);
 
 // Security Headers with Helmet
 app.use(helmet({
