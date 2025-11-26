@@ -18,6 +18,23 @@ export const authorizeController = async (req: Request, res: Response) => {
       });
     }
 
+    // Validate Google OAuth credentials
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      console.error('❌ GOOGLE_CLIENT_ID is not set in environment variables');
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: 'GOOGLE_CLIENT_ID is not configured. Please set it in Railway/Vercel environment variables.',
+      });
+    }
+
+    if (!process.env.GOOGLE_CLIENT_SECRET) {
+      console.error('❌ GOOGLE_CLIENT_SECRET is not set in environment variables');
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: 'GOOGLE_CLIENT_SECRET is not configured. Please set it in Railway/Vercel environment variables.',
+      });
+    }
+
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,

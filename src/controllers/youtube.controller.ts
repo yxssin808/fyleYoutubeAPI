@@ -325,6 +325,15 @@ export const getYouTubeLimitsController = async (req: Request, res: Response) =>
     const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
     const monthlyCount = await supabaseService.getMonthlyUploadCount(sanitizedUserId);
 
+    // Log for debugging
+    console.log(`📊 YouTube limits check:`, {
+      userId: sanitizedUserId,
+      plan,
+      limits,
+      monthlyCount,
+      availablePlans: Object.keys(PLAN_LIMITS),
+    });
+
     res.json({
       success: true,
       plan,

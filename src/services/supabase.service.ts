@@ -44,6 +44,7 @@ export class SupabaseService {
     try {
       const supabase = getSupabaseClient();
       if (!supabase) {
+        console.warn('⚠️ Supabase client not initialized, defaulting to free plan');
         return 'free';
       }
 
@@ -54,13 +55,33 @@ export class SupabaseService {
         .single();
 
       if (error || !data) {
-        console.error('Error fetching user plan:', error);
+        console.error('❌ Error fetching user plan:', {
+          error: error?.message,
+          userId,
+          data: data ? 'exists' : 'null',
+        });
         return 'free';
       }
 
-      return data.plan || 'free';
+      // Normalize plan name (lowercase, handle variations)
+      const plan = (data.plan || 'free').toLowerCase().trim();
+      
+      // Map common variations to standard plan names
+      const planMap: Record<string, string> = {
+        'free': 'free',
+        'bedroom': 'bedroom',
+        'pro': 'pro',
+        'studio': 'studio',
+        // Handle any other variations
+      };
+
+      const normalizedPlan = planMap[plan] || plan;
+      
+      console.log(`✅ User plan fetched: ${plan} → ${normalizedPlan} (userId: ${userId})`);
+      
+      return normalizedPlan;
     } catch (error) {
-      console.error('Exception fetching user plan:', error);
+      console.error('❌ Exception fetching user plan:', error);
       return 'free';
     }
   }
