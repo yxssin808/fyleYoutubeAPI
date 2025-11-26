@@ -215,11 +215,19 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
 
     console.log('✅ YouTube upload record created:', uploadRecord.id);
 
-    // TODO: In a real implementation, you would:
-    // 1. Queue the upload job (using a job queue like Bull, BullMQ, etc.)
-    // 2. Process the upload asynchronously
-    // 3. Upload to YouTube API when scheduled time arrives (or immediately)
-    // 4. Update status to 'uploaded' or 'failed' with error message
+    // Queue upload for processing (if not scheduled)
+    if (!scheduledDate) {
+      // Process immediately in background (non-blocking)
+      setImmediate(async () => {
+        try {
+          const { UploadProcessorService } = await import('../services/upload-processor.service.js');
+          const processor = new UploadProcessorService();
+          await processor.processUpload(uploadRecord.id);
+        } catch (error: any) {
+          console.error('Background upload processing failed:', error);
+        }
+      });
+    }
 
     res.json({
       success: true,
@@ -311,6 +319,68 @@ export const getYouTubeLimitsController = async (req: Request, res: Response) =>
     console.error('❌ Error fetching YouTube limits:', error);
     res.status(500).json({
       error: 'Failed to fetch YouTube limits',
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * DELETE /api/youtube/upload/:id
+ * Delete a YouTube upload and video
+ */
+export const deleteYouTubeUploadController = async (req: Request, res: Response) => {
+  try {
+    const uploadId = req.params.id;
+    const userId = req.body.userId || req.query.userId as string;
+
+    if (!uploadId || !userId) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'uploadId and userId are required',
+      });
+    }
+
+    const sanitizedUserId = sanitizeString(userId);
+    const sanitizedUploadId = sanitizeString(uploadId);
+
+    const { UploadProcessorService } = await import('../services/upload-processor.service.js');
+    const processor = new UploadProcessorService();
+
+    await processor.deleteUpload(sanitizedUploadId, sanitizedUserId);
+
+    res.json({
+      success: true,
+      message: 'Upload deleted successfully',
+    });
+  } catch (error: any) {
+    console.error('❌ Error deleting YouTube upload:', error);
+    res.status(error.message?.includes('Unauthorized') ? 403 : 500).json({
+      error: 'Failed to delete YouTube upload',
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * POST /api/youtube/process
+ * Manually trigger processing of pending uploads (admin/internal use)
+ */
+export const processPendingUploadsController = async (req: Request, res: Response) => {
+  try {
+    // Optional: Add authentication/authorization check here
+    const { UploadProcessorService } = await import('../services/upload-processor.service.js');
+    const processor = new UploadProcessorService();
+
+    await processor.processPendingUploads();
+
+    res.json({
+      success: true,
+      message: 'Pending uploads processed',
+    });
+  } catch (error: any) {
+    console.error('❌ Error processing pending uploads:', error);
+    res.status(500).json({
+      error: 'Failed to process pending uploads',
       message: error.message,
     });
   }

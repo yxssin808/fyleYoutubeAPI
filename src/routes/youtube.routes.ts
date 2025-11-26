@@ -4,6 +4,8 @@ import {
   createYouTubeUploadController,
   getYouTubeUploadsController,
   getYouTubeLimitsController,
+  deleteYouTubeUploadController,
+  processPendingUploadsController,
 } from '../controllers/youtube.controller.js';
 import {
   getTemplatesController,
@@ -11,6 +13,12 @@ import {
   updateTemplateController,
   deleteTemplateController,
 } from '../controllers/templates.controller.js';
+import {
+  authorizeController,
+  callbackController,
+  statusController,
+  disconnectController,
+} from '../controllers/oauth.controller.js';
 
 const router = Router();
 
@@ -22,6 +30,25 @@ router.get('/uploads', getYouTubeUploadsController);
 
 // GET /api/youtube/limits - Get user's YouTube upload limits
 router.get('/limits', getYouTubeLimitsController);
+
+// DELETE /api/youtube/upload/:id - Delete a YouTube upload
+router.delete('/upload/:id', deleteYouTubeUploadController);
+
+// POST /api/youtube/process - Process pending uploads (internal/admin)
+router.post('/process', processPendingUploadsController);
+
+// OAuth routes
+// POST /api/youtube/oauth/authorize - Generate OAuth authorization URL
+router.post('/oauth/authorize', authorizeController);
+
+// POST /api/youtube/oauth/callback - Exchange code for tokens
+router.post('/oauth/callback', callbackController);
+
+// GET /api/youtube/oauth/status - Check OAuth connection status
+router.get('/oauth/status', statusController);
+
+// POST /api/youtube/oauth/disconnect - Disconnect YouTube account
+router.post('/oauth/disconnect', disconnectController);
 
 // Templates routes
 // GET /api/youtube/templates - Get user's templates

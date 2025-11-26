@@ -160,5 +160,130 @@ export class SupabaseService {
       return [];
     }
   }
+
+  /**
+   * Update YouTube upload record
+   */
+  async updateYouTubeUpload(
+    uploadId: string,
+    updates: {
+      status?: string;
+      youtube_video_id?: string;
+      error_message?: string;
+    }
+  ): Promise<any> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        throw new Error('Supabase client not initialized');
+      }
+
+      const { data, error } = await supabase
+        .from('youtube_uploads')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', uploadId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating YouTube upload:', error);
+        throw error;
+      }
+
+      return data;
+    } catch (error: any) {
+      console.error('Exception updating YouTube upload:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get pending uploads that are ready to process
+   */
+  async getPendingUploads(): Promise<any[]> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        return [];
+      }
+
+      const now = new Date().toISOString();
+
+      const { data, error } = await supabase
+        .from('youtube_uploads')
+        .select('*')
+        .eq('status', 'pending')
+        .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
+        .order('created_at', { ascending: true })
+        .limit(10); // Process 10 at a time
+
+      if (error) {
+        console.error('Error fetching pending uploads:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Exception fetching pending uploads:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Delete YouTube upload record
+   */
+  async deleteYouTubeUpload(uploadId: string, userId: string): Promise<void> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        throw new Error('Supabase client not initialized');
+      }
+
+      const { error } = await supabase
+        .from('youtube_uploads')
+        .delete()
+        .eq('id', uploadId)
+        .eq('user_id', userId); // Ensure user owns the upload
+
+      if (error) {
+        console.error('Error deleting YouTube upload:', error);
+        throw error;
+      }
+    } catch (error: any) {
+      console.error('Exception deleting YouTube upload:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get YouTube upload by ID
+   */
+  async getYouTubeUpload(uploadId: string): Promise<any | null> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        return null;
+      }
+
+      const { data, error } = await supabase
+        .from('youtube_uploads')
+        .select('*')
+        .eq('id', uploadId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching YouTube upload:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Exception fetching YouTube upload:', error);
+      return null;
+    }
+  }
 }
 

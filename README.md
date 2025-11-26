@@ -4,11 +4,16 @@ Serverless Vercel service for YouTube upload integration.
 
 ## Features
 
-- YouTube upload request creation
-- Plan-based upload limits (Free: 4/month, Bedroom: 30/month, Pro/Studio: unlimited)
-- Format validation (MP3 for Free/Bedroom, MP3+WAV for Pro/Studio)
-- Upload scheduling
-- Thumbnail support (images/GIFs up to 7MB)
+- **YouTube Upload Integration**: Full YouTube Data API v3 integration
+- **OAuth2 Authentication**: Google OAuth2 for YouTube API access
+- **Video Upload**: Automatic video upload to YouTube with metadata
+- **Job Queue System**: Asynchronous processing of uploads
+- **Plan-based Limits**: Free: 4/month, Bedroom: 30/month, Pro/Studio: unlimited
+- **Format Validation**: MP3 for Free/Bedroom, MP3+WAV for Pro/Studio
+- **Upload Scheduling**: Schedule uploads for future dates
+- **Thumbnail Support**: Images/GIFs up to 7MB
+- **Delete Functionality**: Delete uploads and YouTube videos
+- **Status Tracking**: Real-time status updates (pending → processing → uploaded/failed)
 
 ## Environment Variables
 
@@ -21,6 +26,9 @@ These variables **must** be set for the service to work:
 | `SUPABASE_URL` | Your Supabase project URL | Supabase Dashboard → Settings → API → Project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (bypasses RLS) | Supabase Dashboard → Settings → API → service_role key (⚠️ Keep secret!) |
 | `FRONTEND_URL` | Your frontend URL for CORS | Your production frontend URL (e.g., `https://fyle-cloud.com`) |
+| `GOOGLE_CLIENT_ID` | Google OAuth2 Client ID | Google Cloud Console → APIs & Services → Credentials |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth2 Client Secret | Google Cloud Console → APIs & Services → Credentials |
+| `GOOGLE_REDIRECT_URI` | OAuth2 redirect URI | Your frontend OAuth callback URL (e.g., `https://fyle-cloud.com/youtube/oauth/callback`) |
 
 ### Optional Variables
 
@@ -83,6 +91,74 @@ Get user's YouTube uploads.
 ### GET `/api/youtube/limits?userId=string`
 
 Get user's YouTube upload limits based on their plan.
+
+### DELETE `/api/youtube/upload/:id`
+
+Delete a YouTube upload and associated video.
+
+**Request Body:**
+```json
+{
+  "userId": "string"
+}
+```
+
+### POST `/api/youtube/process`
+
+Manually trigger processing of pending uploads (internal/admin use).
+
+## OAuth2 Setup
+
+### Using Existing Google OAuth Credentials
+
+**Good news!** If you already have Google OAuth set up for user registration (via Supabase), you can **reuse the same OAuth Client ID and Secret** for YouTube!
+
+1. **Google Cloud Console Setup:**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Select your existing project (the same one used for Supabase Auth)
+   - Enable **YouTube Data API v3**:
+     - Go to **APIs & Services → Library**
+     - Search for "YouTube Data API v3"
+     - Click **Enable**
+   - **No need to create new OAuth credentials** - use your existing ones!
+
+2. **Update OAuth Consent Screen (if needed):**
+   - Go to **APIs & Services → OAuth consent screen**
+   - Add YouTube scopes:
+     - `https://www.googleapis.com/auth/youtube.upload`
+     - `https://www.googleapis.com/auth/youtube`
+   - Save and continue
+
+3. **Add Redirect URI:**
+   - Go to **APIs & Services → Credentials**
+   - Edit your existing OAuth 2.0 Client ID
+   - Add to **Authorized redirect URIs**:
+     ```
+     https://your-frontend.com/youtube/oauth/callback
+     http://localhost:5173/youtube/oauth/callback  (for local dev)
+     ```
+
+4. **Database Migration:**
+   - Run migration `20250131000005_add_youtube_oauth_fields.sql`
+   - This adds OAuth token fields to the `profiles` table
+
+5. **User Authentication Flow:**
+   - Users connect their YouTube account via the "Connect" button in the YouTube upload page
+   - This uses a separate OAuth flow with YouTube-specific scopes
+   - Tokens are stored in the `profiles` table
+   - The service uses these tokens to upload videos
+
+**Note:** The YouTube OAuth flow is separate from the Supabase Auth Google login. Users need to connect their YouTube account specifically for video uploads, even if they logged in with Google.
+
+## Processing Workflow
+
+1. User creates upload request → Status: `pending`
+2. If not scheduled, upload is queued immediately
+3. Background processor:
+   - Downloads audio file from CDN/S3
+   - Uploads to YouTube using OAuth2 tokens
+   - Updates status to `uploaded` or `failed`
+4. User can view status in the uploads overview
 
 ## Plan Limits
 
