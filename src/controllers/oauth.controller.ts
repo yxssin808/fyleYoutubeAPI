@@ -71,7 +71,23 @@ export const callbackController = async (req: Request, res: Response) => {
     );
 
     // Exchange code for tokens
-    const { tokens } = await oauth2Client.getToken(code);
+    let tokens;
+    try {
+      const tokenResponse = await oauth2Client.getToken(code);
+      tokens = tokenResponse.tokens;
+    } catch (error: any) {
+      console.error('❌ OAuth token exchange error:', {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+      });
+      
+      // Provide more specific error messages
+      if (error.message?.includes('invalid_grant')) {
+        throw new Error('Authorization code expired or already used. Please try connecting again.');
+      }
+      throw error;
+    }
 
     if (!tokens.access_token) {
       throw new Error('No access token received');
