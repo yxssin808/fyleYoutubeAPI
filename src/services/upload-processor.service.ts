@@ -8,14 +8,12 @@ import { Readable } from 'stream';
 
 export class UploadProcessorService {
   private youtubeService: YouTubeService;
-  private fileService: FileService;
   private oauthService: OAuthService;
   private supabaseService: SupabaseService;
   private apiBaseUrl: string;
 
   constructor() {
     this.youtubeService = new YouTubeService();
-    this.fileService = new FileService();
     this.oauthService = new OAuthService();
     this.supabaseService = new SupabaseService();
     // Use API_BASE_URL or default to the main API service
@@ -56,52 +54,73 @@ export class UploadProcessorService {
       // Initialize YouTube service
       await this.youtubeService.initialize(tokens.access_token, tokens.refresh_token);
 
-      // Download file to get URL
+      // Get file URL from Supabase (don't download the file, just get the URL)
       console.log(`📥 Getting file URL: ${upload.file_id}`);
-      const { stream: audioStream } = await this.fileService.downloadFile(upload.file_id, upload.user_id);
       
-      // Get file URL from Supabase for video processing API
-      const uploadRecord = await this.supabaseService.getYouTubeUpload(uploadId);
-      if (!uploadRecord) {
-        throw new Error('Upload record not found');
-      }
-
       // Get file metadata to find CDN URL
       const supabase = this.supabaseService.client;
       if (!supabase) {
         throw new Error('Supabase client not initialized');
       }
       
-      const { data: fileData } = await supabase
+      const { data: fileData, error: fileError } = await supabase
         .from('files')
         .select('cdn_url, s3_key')
         .eq('id', upload.file_id)
         .single();
 
-      if (!fileData) {
-        throw new Error('File not found in database');
+      if (fileError || !fileData) {
+        console.error('❌ File query error:', fileError);
+        throw new Error(`File not found in database: ${fileError?.message || 'Unknown error'}`);
       }
+      
+      console.log(`   File found: cdn_url=${!!fileData.cdn_url}, s3_key=${!!fileData.s3_key}`);
 
       // Get audio URL (prefer CDN, fallback to signed URL)
       let audioUrl: string;
       if (fileData.cdn_url) {
         audioUrl = fileData.cdn_url;
+        console.log(`   ✅ Using CDN URL: ${audioUrl.substring(0, 100)}...`);
       } else if (fileData.s3_key) {
         // Get signed URL from Storage API
         const storageApiUrl = process.env.STORAGE_API_URL || '';
+        if (!storageApiUrl) {
+          throw new Error('STORAGE_API_URL not configured. Cannot generate signed URL for S3 files.');
+        }
+        
         console.log(`   Requesting signed URL for S3 key: ${fileData.s3_key}`);
-        const signedUrlResponse = await axios.post(
-          `${storageApiUrl}/api/storage/download-url`,
-          {
-            objectKey: fileData.s3_key,
-            userId: upload.user_id,
-          },
-          {
-            timeout: 120000, // 2 minutes timeout
+        console.log(`   Storage API URL: ${storageApiUrl}`);
+        
+        try {
+          const signedUrlResponse = await axios.post(
+            `${storageApiUrl}/api/storage/download-url`,
+            {
+              objectKey: fileData.s3_key,
+              userId: upload.user_id,
+            },
+            {
+              timeout: 120000, // 2 minutes timeout
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          
+          if (!signedUrlResponse.data?.data?.downloadUrl) {
+            throw new Error('Storage API did not return a download URL');
           }
-        );
-        audioUrl = signedUrlResponse.data.data.downloadUrl;
-        console.log(`   ✅ Got signed URL: ${audioUrl.substring(0, 100)}...`);
+          
+          audioUrl = signedUrlResponse.data.data.downloadUrl;
+          console.log(`   ✅ Got signed URL: ${audioUrl.substring(0, 100)}...`);
+        } catch (error: any) {
+          console.error('❌ Failed to get signed URL:', {
+            message: error.message,
+            code: error.code,
+            response: error.response?.data,
+            status: error.response?.status,
+          });
+          throw new Error(`Failed to generate signed URL: ${error.message}`);
+        }
       } else {
         throw new Error('File has no CDN URL or S3 key');
       }
