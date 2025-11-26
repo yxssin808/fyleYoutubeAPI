@@ -20,7 +20,12 @@ for (const file of envFiles) {
 }
 
 if (!envLoaded) {
-  console.warn('⚠️ No .env.local or .env file found. Environment variables must come from the host.');
+  // This is normal on Railway/production - environment variables come from Railway
+  if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
+    console.log('ℹ️ Running in production - environment variables loaded from Railway/host');
+  } else {
+    console.warn('⚠️ No .env.local or .env file found. Environment variables must come from the host.');
+  }
 } else {
   const supabaseKeys = Object.entries(process.env)
     .filter(([key]) => key.startsWith('SUPABASE_') || key === 'FRONTEND_URL')
@@ -149,15 +154,40 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 app.listen(PORT, () => {
   console.log(`🚀 YouTube API listening on port ${PORT}`);
   console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
-  // Check FFmpeg availability
-  try {
-    const { execSync } = require('child_process');
-    execSync('ffmpeg -version', { stdio: 'ignore' });
-    console.log(`✅ FFmpeg: Available for video processing`);
-  } catch (error) {
-    console.error(`❌ FFmpeg: NOT FOUND! Video processing will fail.`);
-    console.error(`   Please install FFmpeg or set FFMPEG_PATH environment variable.`);
-    console.error(`   On Railway: FFmpeg should be installed via Dockerfile.`);
+  
+  // Check FFmpeg availability (same logic as VideoProcessingService)
+  const { execSync } = require('child_process');
+  const possiblePaths = [
+    process.env.FFMPEG_PATH,
+    process.env.FFMPEG_BINARY,
+    '/usr/bin/ffmpeg',        // Standard Linux location (Railway/Docker)
+    '/usr/local/bin/ffmpeg',  // Alternative Linux location
+    '/opt/homebrew/bin/ffmpeg', // macOS Homebrew
+    'ffmpeg',                 // System PATH (fallback)
+  ].filter(Boolean);
+  
+  let ffmpegFound = false;
+  let ffmpegPath = null;
+  
+  for (const path of possiblePaths) {
+    try {
+      const command = process.platform === 'win32' ? `"${path}" -version` : `${path} -version`;
+      execSync(command, { stdio: 'ignore', timeout: 5000 });
+      ffmpegFound = true;
+      ffmpegPath = path;
+      break;
+    } catch (error) {
+      continue;
+    }
+  }
+  
+  if (ffmpegFound) {
+    console.log(`✅ FFmpeg: Available for video processing (${ffmpegPath})`);
+  } else {
+    console.warn(`⚠️ FFmpeg: Not found in standard locations.`);
+    console.warn(`   VideoProcessingService will search again when needed.`);
+    console.warn(`   On Railway: FFmpeg should be installed via Dockerfile at /usr/bin/ffmpeg`);
+    console.warn(`   Locally: Install FFmpeg or set FFMPEG_PATH environment variable.`);
   }
   
   // Final check of critical environment variables
