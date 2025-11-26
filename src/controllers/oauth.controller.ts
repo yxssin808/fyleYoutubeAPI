@@ -30,10 +30,14 @@ export const authorizeController = async (req: Request, res: Response) => {
       'https://www.googleapis.com/auth/youtube',
     ];
 
+    // Force account selection by adding login_hint parameter removal and prompt
+    // This ensures users can always select a different account
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: scopes,
       prompt: 'select_account consent', // Allow user to select account AND force consent screen
+      // Add a random state parameter to prevent caching
+      state: `youtube_oauth_${Date.now()}_${Math.random().toString(36).substring(7)}`,
     });
 
     res.json({
