@@ -6,12 +6,13 @@ Serverless Vercel service for YouTube upload integration.
 
 - **YouTube Upload Integration**: Full YouTube Data API v3 integration
 - **OAuth2 Authentication**: Google OAuth2 for YouTube API access
+- **Video Creation**: Automatic MP4 video creation from audio + thumbnail using FFmpeg
 - **Video Upload**: Automatic video upload to YouTube with metadata
 - **Job Queue System**: Asynchronous processing of uploads
 - **Plan-based Limits**: Free: 4/month, Bedroom: 30/month, Pro/Studio: unlimited
 - **Format Validation**: MP3 for Free/Bedroom, MP3+WAV for Pro/Studio
 - **Upload Scheduling**: Schedule uploads for future dates
-- **Thumbnail Support**: Images/GIFs up to 7MB
+- **Thumbnail Support**: Images/GIFs up to 7MB (converted to video background)
 - **Delete Functionality**: Delete uploads and YouTube videos
 - **Status Tracking**: Real-time status updates (pending → processing → uploaded/failed)
 
@@ -29,6 +30,8 @@ These variables **must** be set for the service to work:
 | `GOOGLE_CLIENT_ID` | Google OAuth2 Client ID | Google Cloud Console → APIs & Services → Credentials |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth2 Client Secret | Google Cloud Console → APIs & Services → Credentials |
 | `GOOGLE_REDIRECT_URI` | OAuth2 redirect URI | Your frontend OAuth callback URL (e.g., `https://fyle-cloud.com/youtube/oauth/callback`) |
+| `API_BASE_URL` | Main API service URL (with FFmpeg) | Your main API service URL (e.g., `https://fyle-api.vercel.app`) |
+| `STORAGE_API_URL` | Storage service URL | Your storage service URL (e.g., `https://fylestorage.vercel.app/api`) |
 
 ### Optional Variables
 
@@ -47,6 +50,16 @@ These variables **must** be set for the service to work:
 **For Vercel Deployment:**
 1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables
 2. Add all required variables for Production, Preview, and Development environments
+
+## Prerequisites
+
+### API Service with FFmpeg
+
+**This service delegates video processing to the main API service**, which already has FFmpeg installed. 
+
+**No FFmpeg installation needed here!** The video creation is handled by the main API service (`api/`), which runs on a platform that supports FFmpeg (Railway, Render, etc.).
+
+Make sure to set `API_BASE_URL` environment variable pointing to your main API service.
 
 ## Development
 
@@ -155,10 +168,21 @@ Manually trigger processing of pending uploads (internal/admin use).
 1. User creates upload request → Status: `pending`
 2. If not scheduled, upload is queued immediately
 3. Background processor:
-   - Downloads audio file from CDN/S3
-   - Uploads to YouTube using OAuth2 tokens
+   - Gets audio file URL from CDN/S3
+   - **Calls main API service** to create MP4 video (audio + thumbnail)
+   - Downloads the created video stream
+   - Uploads MP4 video to YouTube using OAuth2 tokens
+   - Uploads thumbnail as custom thumbnail (if provided)
    - Updates status to `uploaded` or `failed`
 4. User can view status in the uploads overview
+
+## Video Creation
+
+The service automatically creates MP4 videos from audio files:
+- **With Thumbnail**: Audio + thumbnail image (looped for entire duration)
+- **Without Thumbnail**: Audio + black background (1280x720)
+- **Format**: MP4 (H.264 video, AAC audio) - YouTube compatible
+- **Resolution**: 1280x720 (720p)
 
 ## Plan Limits
 

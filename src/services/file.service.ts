@@ -5,9 +5,52 @@ import { getSupabaseClient } from '../lib/supabaseClient.js';
 
 export class FileService {
   /**
+   * Get signed URL from Storage API
+   */
+  private async getSignedUrl(s3Key: string, userId: string): Promise<string> {
+    const storageApiUrl = process.env.STORAGE_API_URL || '';
+    
+    if (!storageApiUrl) {
+      throw new Error('Storage API URL not configured. Please set STORAGE_API_URL environment variable.');
+    }
+
+    try {
+      // Remove trailing slash if present
+      const baseUrl = storageApiUrl.replace(/\/$/, '');
+      
+      // Storage API endpoint: /storage/download-url
+      const response = await axios.post(
+        `${baseUrl}/storage/download-url`,
+        {
+          objectKey: s3Key,
+          userId: userId,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000, // 30 seconds timeout
+        }
+      );
+
+      if (!response.data?.data?.downloadUrl) {
+        throw new Error('Storage API did not return a download URL');
+      }
+
+      return response.data.data.downloadUrl;
+    } catch (error: any) {
+      console.error('Failed to get signed URL:', error);
+      if (error.response) {
+        throw new Error(`Storage API error (${error.response.status}): ${error.response.data?.error || error.message}`);
+      }
+      throw new Error(`Failed to generate signed URL: ${error.message}`);
+    }
+  }
+
+  /**
    * Download file from CDN or storage
    */
-  async downloadFile(fileId: string): Promise<{ stream: Readable; size: number; contentType: string }> {
+  async downloadFile(fileId: string, userId?: string): Promise<{ stream: Readable; size: number; contentType: string }> {
     const supabase = getSupabaseClient();
     if (!supabase) {
       throw new Error('Supabase client not initialized');
@@ -30,12 +73,13 @@ export class FileService {
     if (file.cdn_url) {
       fileUrl = file.cdn_url;
     } else if (file.s3_key) {
-      // Generate signed URL from S3
-      // This would need to be implemented based on your S3 setup
-      // For now, we'll use the CDN URL or try to construct a signed URL
-      throw new Error('S3 signed URL generation not implemented. Please use CDN URL.');
+      // Generate signed URL from Storage API
+      if (!userId && !file.user_id) {
+        throw new Error('User ID required to generate signed URL for S3 files');
+      }
+      fileUrl = await this.getSignedUrl(file.s3_key, userId || file.user_id);
     } else {
-      throw new Error('No file URL available');
+      throw new Error('No file URL available (no cdn_url or s3_key)');
     }
 
     // Download file
