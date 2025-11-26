@@ -276,34 +276,53 @@ export class UploadProcessorService {
    * Delete YouTube video and upload record
    */
   async deleteUpload(uploadId: string, userId: string): Promise<void> {
+    console.log(`🗑️ Starting delete process for upload: ${uploadId}, user: ${userId}`);
+
     const upload = await this.supabaseService.getYouTubeUpload(uploadId);
     if (!upload) {
+      console.error(`❌ Upload not found: ${uploadId}`);
       throw new Error('Upload not found');
     }
 
+    console.log(`✅ Upload found: ${uploadId}, status: ${upload.status}, youtube_video_id: ${upload.youtube_video_id || 'none'}`);
+
     // Verify ownership
     if (upload.user_id !== userId) {
+      console.error(`❌ Ownership mismatch: upload.user_id=${upload.user_id}, provided userId=${userId}`);
       throw new Error('Unauthorized: You do not own this upload');
     }
 
+    console.log('✅ Ownership verified');
+
     // If video was uploaded, delete from YouTube
     if (upload.youtube_video_id && upload.status === 'uploaded') {
+      console.log(`🎬 Attempting to delete YouTube video: ${upload.youtube_video_id}`);
       try {
         const tokens = await this.oauthService.getUserTokens(userId);
         if (tokens) {
+          console.log('✅ OAuth tokens found, initializing YouTube service...');
           await this.youtubeService.initialize(tokens.access_token, tokens.refresh_token);
           await this.youtubeService.deleteVideo(upload.youtube_video_id);
-          console.log(`🗑️ Deleted YouTube video: ${upload.youtube_video_id}`);
+          console.log(`✅ Deleted YouTube video: ${upload.youtube_video_id}`);
+        } else {
+          console.warn('⚠️ No OAuth tokens found, skipping YouTube video deletion');
         }
       } catch (error: any) {
-        console.error('Failed to delete YouTube video:', error);
+        console.error('❌ Failed to delete YouTube video:', {
+          error: error.message,
+          stack: error.stack,
+          youtube_video_id: upload.youtube_video_id,
+        });
         // Continue with database deletion even if YouTube deletion fails
       }
+    } else {
+      console.log('ℹ️ No YouTube video to delete (status not uploaded or no video_id)');
     }
 
     // Delete from database
+    console.log('🗄️ Deleting upload record from database...');
     await this.supabaseService.deleteYouTubeUpload(uploadId, userId);
-    console.log(`🗑️ Deleted upload record: ${uploadId}`);
+    console.log(`✅ Deleted upload record: ${uploadId}`);
   }
 }
 

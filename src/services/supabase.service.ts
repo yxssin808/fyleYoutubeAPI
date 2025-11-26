@@ -236,22 +236,35 @@ export class SupabaseService {
    * Delete YouTube upload record
    */
   async deleteYouTubeUpload(uploadId: string, userId: string): Promise<void> {
+    console.log(`🗄️ Deleting YouTube upload from database: ${uploadId}, user: ${userId}`);
     try {
       const supabase = getSupabaseClient();
       if (!supabase) {
+        console.error('❌ Supabase client not initialized');
         throw new Error('Supabase client not initialized');
       }
 
-      const { error } = await supabase
+      console.log('✅ Supabase client obtained, executing delete query...');
+      const { data, error } = await supabase
         .from('youtube_uploads')
         .delete()
         .eq('id', uploadId)
-        .eq('user_id', userId); // Ensure user owns the upload
+        .eq('user_id', userId) // Ensure user owns the upload
+        .select();
 
       if (error) {
-        console.error('Error deleting YouTube upload:', error);
+        console.error('❌ Error deleting YouTube upload from database:', {
+          error: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          uploadId,
+          userId,
+        });
         throw error;
       }
+
+      console.log(`✅ Delete query executed successfully. Deleted rows: ${data?.length || 0}`);
     } catch (error: any) {
       console.error('Exception deleting YouTube upload:', error);
       throw error;

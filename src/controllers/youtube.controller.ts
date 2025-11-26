@@ -354,34 +354,67 @@ export const getYouTubeLimitsController = async (req: Request, res: Response) =>
  * Delete a YouTube upload and video
  */
 export const deleteYouTubeUploadController = async (req: Request, res: Response) => {
-  try {
-    const uploadId = req.params.id;
-    const userId = req.body.userId || req.query.userId as string;
+  const uploadId = req.params.id;
+  const userId = req.query.userId as string;
 
-    if (!uploadId || !userId) {
+  console.log('🗑️ DELETE upload request:', {
+    uploadId,
+    userId,
+    method: req.method,
+    url: req.url,
+    query: req.query,
+    params: req.params,
+  });
+
+  try {
+    if (!uploadId) {
+      console.error('❌ Missing uploadId');
       return res.status(400).json({
-        error: 'Missing required fields',
-        message: 'uploadId and userId are required',
+        error: 'Missing required field',
+        message: 'uploadId is required',
+      });
+    }
+
+    if (!userId) {
+      console.error('❌ Missing userId');
+      return res.status(400).json({
+        error: 'Missing required field',
+        message: 'userId query parameter is required',
       });
     }
 
     const sanitizedUserId = sanitizeString(userId);
     const sanitizedUploadId = sanitizeString(uploadId);
 
+    console.log('✅ Validated inputs:', {
+      sanitizedUploadId,
+      sanitizedUserId,
+    });
+
     const { UploadProcessorService } = await import('../services/upload-processor.service.js');
     const processor = new UploadProcessorService();
 
+    console.log('🔄 Starting delete process...');
     await processor.deleteUpload(sanitizedUploadId, sanitizedUserId);
+    console.log('✅ Delete process completed successfully');
 
     res.json({
       success: true,
       message: 'Upload deleted successfully',
     });
   } catch (error: any) {
-    console.error('❌ Error deleting YouTube upload:', error);
-    res.status(error.message?.includes('Unauthorized') ? 403 : 500).json({
+    console.error('❌ Error deleting YouTube upload:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      uploadId,
+      userId,
+    });
+    
+    const statusCode = error.message?.includes('Unauthorized') ? 403 : 500;
+    res.status(statusCode).json({
       error: 'Failed to delete YouTube upload',
-      message: error.message,
+      message: error.message || 'Unknown error occurred',
     });
   }
 };

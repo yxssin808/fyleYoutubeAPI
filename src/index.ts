@@ -126,9 +126,23 @@ app.get('/health', healthLimiter, (_, res) => {
   res.json({ status: 'ok', service: 'youtube-api', timestamp: new Date().toISOString() });
 });
 
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('❌ YouTube API error:', err);
-  res.status(err.status || 500).json({
+// Error handler middleware (must be last)
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('❌ YouTube API error handler triggered:', {
+    message: err.message,
+    stack: err.stack,
+    name: err.name,
+    code: err.code,
+    status: err.status,
+    url: req.url,
+    method: req.method,
+    body: req.body,
+    query: req.query,
+    params: req.params,
+  });
+  
+  const statusCode = err.status || err.statusCode || 500;
+  res.status(statusCode).json({
     error: err.code || 'INTERNAL_ERROR',
     message: err.message || 'Unexpected server error',
   });
