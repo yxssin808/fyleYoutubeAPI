@@ -1,0 +1,15 @@
+# Nixpacks configuration for Railway
+# This is an alternative to Dockerfile - Railway will use this if Dockerfile is not detected
+
+[phases.setup]
+nixPkgs = ["nodejs-18_x", "ffmpeg"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "node dist/index.js"
+

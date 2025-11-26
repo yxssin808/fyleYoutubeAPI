@@ -7,13 +7,97 @@ import { createWriteStream } from 'fs';
 import path from 'path';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import { execSync } from 'child_process';
 
 export class VideoProcessingService {
   private tempDir: string;
+  private ffmpegPath: string | null = null;
+  private ffprobePath: string | null = null;
 
   constructor() {
     this.tempDir = path.join(os.tmpdir(), 'youtube-videos');
     this.ensureTempDir();
+    this.setupFFmpeg();
+  }
+
+  /**
+   * Setup FFmpeg paths
+   * On Railway/Docker: FFmpeg is installed via apt-get in Dockerfile at /usr/bin/ffmpeg
+   * Locally: FFmpeg should be in PATH or set via FFMPEG_PATH env var
+   */
+  private setupFFmpeg() {
+    // Try to find FFmpeg in common locations
+    // Priority: Environment variables > Standard Linux paths > System PATH
+    const possiblePaths = [
+      process.env.FFMPEG_PATH,
+      process.env.FFMPEG_BINARY,
+      '/usr/bin/ffmpeg',        // Standard Linux location (Railway/Docker)
+      '/usr/local/bin/ffmpeg',  // Alternative Linux location
+      '/opt/homebrew/bin/ffmpeg', // macOS Homebrew
+      'ffmpeg',                 // System PATH (fallback)
+    ].filter(Boolean); // Remove undefined values
+
+    const possibleProbePaths = [
+      process.env.FFPROBE_PATH,
+      process.env.FFPROBE_BINARY,
+      '/usr/bin/ffprobe',        // Standard Linux location (Railway/Docker)
+      '/usr/local/bin/ffprobe',  // Alternative Linux location
+      '/opt/homebrew/bin/ffprobe', // macOS Homebrew
+      'ffprobe',                 // System PATH (fallback)
+    ].filter(Boolean); // Remove undefined values
+
+    // Find FFmpeg
+    for (const ffmpegPath of possiblePaths) {
+      if (!ffmpegPath) continue;
+      
+      try {
+        // Try to execute ffmpeg -version (works on both Windows and Linux)
+        const command = process.platform === 'win32' 
+          ? `"${ffmpegPath}" -version`
+          : `${ffmpegPath} -version`;
+        execSync(command, { stdio: 'ignore', timeout: 5000 });
+        this.ffmpegPath = ffmpegPath;
+        console.log(`✅ Found FFmpeg at: ${ffmpegPath}`);
+        break;
+      } catch (error) {
+        // Try next path
+        continue;
+      }
+    }
+
+    // Find FFprobe (optional, but recommended)
+    for (const ffprobePath of possibleProbePaths) {
+      if (!ffprobePath) continue;
+      
+      try {
+        const command = process.platform === 'win32'
+          ? `"${ffprobePath}" -version`
+          : `${ffprobePath} -version`;
+        execSync(command, { stdio: 'ignore', timeout: 5000 });
+        this.ffprobePath = ffprobePath;
+        console.log(`✅ Found FFprobe at: ${ffprobePath}`);
+        break;
+      } catch (error) {
+        // Try next path
+        continue;
+      }
+    }
+
+    if (!this.ffmpegPath) {
+      const errorMsg = process.env.NODE_ENV === 'production'
+        ? 'FFmpeg not found on Railway. Please check Dockerfile installation.'
+        : 'FFmpeg not found locally. Install FFmpeg or set FFMPEG_PATH environment variable.';
+      console.error(`❌ ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+
+    // Set paths in fluent-ffmpeg
+    if (this.ffmpegPath) {
+      ffmpeg.setFfmpegPath(this.ffmpegPath);
+    }
+    if (this.ffprobePath) {
+      ffmpeg.setFfprobePath(this.ffprobePath);
+    }
   }
 
   private async ensureTempDir() {

@@ -149,7 +149,16 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 app.listen(PORT, () => {
   console.log(`🚀 YouTube API listening on port ${PORT}`);
   console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🎬 FFmpeg: Available for video processing`);
+  // Check FFmpeg availability
+  try {
+    const { execSync } = require('child_process');
+    execSync('ffmpeg -version', { stdio: 'ignore' });
+    console.log(`✅ FFmpeg: Available for video processing`);
+  } catch (error) {
+    console.error(`❌ FFmpeg: NOT FOUND! Video processing will fail.`);
+    console.error(`   Please install FFmpeg or set FFMPEG_PATH environment variable.`);
+    console.error(`   On Railway: FFmpeg should be installed via Dockerfile.`);
+  }
   
   // Final check of critical environment variables
   const criticalVars = {
