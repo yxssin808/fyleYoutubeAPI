@@ -169,8 +169,8 @@ export class VideoProcessingService {
           .inputOptions(['-framerate', '1']);
       }
 
-      // Video settings - optimized for low memory usage
-      // Use faster preset and lower quality to reduce memory and processing time
+      // Video settings - optimized for quality while maintaining reasonable processing time
+      // Using 'fast' preset for good quality/speed balance, higher audio bitrate for better sound
       command
         .videoCodec('libx264')
         .audioCodec('aac')
@@ -185,8 +185,8 @@ export class VideoProcessingService {
         .outputOptions(['-map', '1:v']) // Map video from second input (thumbnail or color)
         // Use 'ultrafast' preset for lower memory usage (faster encoding, larger file size)
         // Use 'fast' preset as compromise (better quality, still fast)
-        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28']) // Lower CRF = higher quality but larger file
-        .outputOptions(['-c:a', 'aac', '-b:a', '128k']) // Lower audio bitrate to reduce file size
+        .outputOptions(['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']) // Better quality: 'fast' preset, CRF 23 (good quality)
+        .outputOptions(['-c:a', 'aac', '-b:a', '256k']) // Higher audio bitrate for better quality (256k AAC)
         .outputOptions(['-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2']) // Ensure 16:9 aspect ratio (prevents Shorts classification)
         .outputOptions(['-aspect', '16:9']) // Explicitly set aspect ratio to 16:9
         .outputOptions(['-max_muxing_queue_size', '1024']) // Prevent queue overflow
