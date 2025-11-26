@@ -148,6 +148,10 @@ export class VideoProcessingService {
     }
 
     return new Promise((resolve, reject) => {
+      // Set timeout for FFmpeg process (30 minutes max)
+      const FFMPEG_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+      let timeoutId: NodeJS.Timeout | null = null;
+      
       const command = ffmpeg();
 
       // Input: Audio file
@@ -165,7 +169,8 @@ export class VideoProcessingService {
           .inputOptions(['-framerate', '1']);
       }
 
-      // Video settings
+      // Video settings - optimized for low memory usage
+      // Use faster preset and lower quality to reduce memory and processing time
       command
         .videoCodec('libx264')
         .audioCodec('aac')
@@ -173,14 +178,26 @@ export class VideoProcessingService {
           '-pix_fmt', 'yuv420p', // Required for YouTube compatibility
           '-shortest', // End when shortest input ends (audio)
           '-r', '1', // 1 frame per second (static image)
+          '-threads', '2', // Limit threads to reduce memory usage
+          '-movflags', '+faststart', // Enable fast start for web playback
         ])
         .outputOptions(['-map', '0:a']) // Map audio from first input (audio file)
         .outputOptions(['-map', '1:v']) // Map video from second input (thumbnail or color)
-        .outputOptions(['-c:v', 'libx264', '-preset', 'medium', '-crf', '23']) // Video encoding
-        .outputOptions(['-c:a', 'aac', '-b:a', '192k']) // Audio encoding
+        // Use 'ultrafast' preset for lower memory usage (faster encoding, larger file size)
+        // Use 'fast' preset as compromise (better quality, still fast)
+        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28']) // Lower CRF = higher quality but larger file
+        .outputOptions(['-c:a', 'aac', '-b:a', '128k']) // Lower audio bitrate to reduce file size
+        .outputOptions(['-vf', 'scale=1280:720']) // Ensure consistent resolution (YouTube minimum)
+        .outputOptions(['-max_muxing_queue_size', '1024']) // Prevent queue overflow
         .output(videoPath)
         .on('start', (cmd: string) => {
           console.log('🎬 FFmpeg command:', cmd);
+          // Set timeout to kill process if it takes too long
+          timeoutId = setTimeout(() => {
+            console.error('❌ FFmpeg timeout after 30 minutes, killing process...');
+            command.kill('SIGKILL');
+            reject(new Error('FFmpeg process timeout after 30 minutes'));
+          }, FFMPEG_TIMEOUT);
         })
         .on('progress', (progress: { percent?: number }) => {
           if (progress.percent) {
@@ -188,6 +205,12 @@ export class VideoProcessingService {
           }
         })
         .on('end', async () => {
+          // Clear timeout on success
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+          
           try {
             // Get file size
             const stats = await fs.stat(videoPath);
@@ -206,7 +229,28 @@ export class VideoProcessingService {
           }
         })
         .on('error', async (err: Error) => {
+          // Clear timeout on error
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+          
           console.error('❌ FFmpeg error:', err);
+          console.error('❌ Error details:', {
+            message: err.message,
+            name: err.name,
+            stack: err.stack,
+          });
+          
+          // Check if it's a memory issue
+          if (err.message.includes('SIGKILL') || err.message.includes('killed')) {
+            console.error('⚠️ FFmpeg was killed - likely out of memory or timeout');
+            console.error('💡 Suggestions:');
+            console.error('   1. Increase Railway service memory limit');
+            console.error('   2. Use smaller audio files');
+            console.error('   3. Reduce video quality settings');
+          }
+          
           // Cleanup on error
           await this.cleanupTempFile(audioPath);
           if (thumbnailPath) {
