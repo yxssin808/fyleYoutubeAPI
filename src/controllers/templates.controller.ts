@@ -17,10 +17,13 @@ function sanitizeString(input: string): string {
  * Get user's templates and system templates
  */
 export const getTemplatesController = async (req: Request, res: Response) => {
-  try {
-    const userId = req.query.userId as string;
+  const userId = req.query.userId as string;
 
+  console.log('🔍 Get templates request:', { userId });
+
+  try {
     if (!userId) {
+      console.error('❌ Missing userId');
       return res.status(400).json({
         error: 'Missing userId',
         message: 'userId query parameter is required',
@@ -28,14 +31,20 @@ export const getTemplatesController = async (req: Request, res: Response) => {
     }
 
     const sanitizedUserId = sanitizeString(userId);
+    console.log(`✅ Sanitized userId: ${sanitizedUserId}`);
+
     const supabaseService = new SupabaseService();
     const supabase = supabaseService.client;
 
     if (!supabase) {
+      console.error('❌ Supabase client not initialized');
       return res.status(500).json({
         error: 'Database connection failed',
+        message: 'Supabase client not initialized. Please check server configuration.',
       });
     }
+
+    console.log('✅ Supabase client obtained, querying templates...');
 
     // Get user templates and system templates
     const { data: templates, error } = await supabase
@@ -46,22 +55,46 @@ export const getTemplatesController = async (req: Request, res: Response) => {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching templates:', error);
+      console.error('❌ Error fetching templates from database:', {
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        userId: sanitizedUserId,
+      });
+      
+      // Check if table doesn't exist
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return res.status(500).json({
+          error: 'Database table not found',
+          message: 'youtube_description_templates table does not exist. Please run database migrations.',
+        });
+      }
+      
       return res.status(500).json({
         error: 'Failed to fetch templates',
-        message: error.message,
+        message: error.message || 'Database query failed',
+        code: error.code,
       });
     }
+
+    console.log(`✅ Templates fetched successfully: ${templates?.length || 0} templates`);
 
     res.json({
       success: true,
       templates: templates || [],
     });
   } catch (error: any) {
-    console.error('❌ Error fetching templates:', error);
+    console.error('❌ Exception fetching templates:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      userId,
+    });
+    
     res.status(500).json({
       error: 'Failed to fetch templates',
-      message: error.message,
+      message: error.message || 'Unknown error occurred',
     });
   }
 };

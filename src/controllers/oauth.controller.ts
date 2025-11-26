@@ -150,10 +150,13 @@ export const callbackController = async (req: Request, res: Response) => {
  * Check if user has connected YouTube account
  */
 export const statusController = async (req: Request, res: Response) => {
-  try {
-    const userId = req.query.userId as string;
+  const userId = req.query.userId as string;
 
+  console.log('🔍 OAuth status check:', { userId });
+
+  try {
     if (!userId) {
+      console.error('❌ Missing userId');
       return res.status(400).json({
         error: 'Missing userId',
         message: 'userId query parameter is required',
@@ -161,17 +164,43 @@ export const statusController = async (req: Request, res: Response) => {
     }
 
     const oauthService = new OAuthService();
-    const hasTokens = await oauthService.hasValidTokens(userId);
-
-    res.json({
-      success: true,
-      connected: hasTokens,
-    });
+    
+    try {
+      const hasTokens = await oauthService.hasValidTokens(userId);
+      console.log(`✅ OAuth status check completed: ${hasTokens ? 'connected' : 'not connected'}`);
+      
+      res.json({
+        success: true,
+        connected: hasTokens,
+      });
+    } catch (serviceError: any) {
+      console.error('❌ OAuth service error:', {
+        message: serviceError.message,
+        stack: serviceError.stack,
+        userId,
+      });
+      
+      // If it's a Supabase error, provide more details
+      if (serviceError.message?.includes('Supabase') || serviceError.message?.includes('not initialized')) {
+        return res.status(500).json({
+          error: 'Database connection error',
+          message: 'Failed to connect to database. Please check server configuration.',
+        });
+      }
+      
+      throw serviceError;
+    }
   } catch (error: any) {
-    console.error('❌ Error checking OAuth status:', error);
+    console.error('❌ Error checking OAuth status:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      userId,
+    });
+    
     res.status(500).json({
       error: 'Failed to check OAuth status',
-      message: error.message,
+      message: error.message || 'Unknown error occurred',
     });
   }
 };
