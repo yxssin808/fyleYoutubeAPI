@@ -33,7 +33,7 @@ export const authorizeController = async (req: Request, res: Response) => {
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: scopes,
-      prompt: 'consent', // Force consent screen to get refresh token
+      prompt: 'select_account consent', // Allow user to select account AND force consent screen
     });
 
     res.json({
