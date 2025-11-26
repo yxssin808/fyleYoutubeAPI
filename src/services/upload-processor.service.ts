@@ -70,7 +70,7 @@ export class UploadProcessorService {
       // Add timeout to Supabase query
       const queryPromise = supabase
         .from('files')
-        .select('cdn_url, s3_key, path, user_id')
+        .select('cdn_url, s3_key, user_id')
         .eq('id', upload.file_id)
         .single();
       
@@ -120,38 +120,14 @@ export class UploadProcessorService {
         throw new Error('File not found in database: No data returned');
       }
       
-      console.log(`   ✅ File found: cdn_url=${!!fileData.cdn_url}, s3_key=${!!fileData.s3_key}, path=${!!fileData.path}`);
+      console.log(`   ✅ File found: cdn_url=${!!fileData.cdn_url}, s3_key=${!!fileData.s3_key}`);
 
-      // Get audio URL (prefer CDN, fallback to Supabase Storage public URL, then signed URL)
+      // Get audio URL (prefer CDN, fallback to signed URL from S3)
       console.log(`   Determining audio URL...`);
       let audioUrl: string | undefined = undefined;
       if (fileData.cdn_url) {
         audioUrl = fileData.cdn_url;
         console.log(`   ✅ Using CDN URL: ${fileData.cdn_url.substring(0, 100)}...`);
-      } else if (fileData.path) {
-        // Try Supabase Storage public URL first (if file is in a public bucket)
-        console.log(`   ⚠️ No CDN URL, trying Supabase Storage public URL...`);
-        try {
-          const { data: publicUrlData } = supabase.storage
-            .from('audio')
-            .getPublicUrl(fileData.path);
-          
-          if (publicUrlData?.publicUrl) {
-            // Test if URL is accessible
-            const testResponse = await axios.head(publicUrlData.publicUrl, { timeout: 5000 });
-            if (testResponse.status === 200) {
-              audioUrl = publicUrlData.publicUrl;
-              console.log(`   ✅ Using Supabase Storage public URL: ${audioUrl.substring(0, 100)}...`);
-            } else {
-              throw new Error('Public URL not accessible');
-            }
-          } else {
-            throw new Error('No public URL returned');
-          }
-        } catch (error: any) {
-          console.log(`   ⚠️ Supabase Storage public URL not available: ${error.message}`);
-          // Fall through to signed URL
-        }
       }
       
       // If still no URL, try signed URL from S3
