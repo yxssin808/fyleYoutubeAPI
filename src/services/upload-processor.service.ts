@@ -66,7 +66,7 @@ export class UploadProcessorService {
       console.log(`   Querying Supabase for file: ${upload.file_id}`);
       const { data: fileData, error: fileError } = await supabase
         .from('files')
-        .select('cdn_url, s3_key')
+        .select('cdn_url, s3_key, path, user_id')
         .eq('id', upload.file_id)
         .single();
 
@@ -85,28 +85,61 @@ export class UploadProcessorService {
         throw new Error('File not found in database: No data returned');
       }
       
-      console.log(`   ✅ File found: cdn_url=${!!fileData.cdn_url}, s3_key=${!!fileData.s3_key}`);
+      console.log(`   ✅ File found: cdn_url=${!!fileData.cdn_url}, s3_key=${!!fileData.s3_key}, path=${!!fileData.path}`);
 
-      // Get audio URL (prefer CDN, fallback to signed URL)
+      // Get audio URL (prefer CDN, fallback to Supabase Storage public URL, then signed URL)
       console.log(`   Determining audio URL...`);
-      let audioUrl: string;
+      let audioUrl: string | undefined = undefined;
       if (fileData.cdn_url) {
         audioUrl = fileData.cdn_url;
-        console.log(`   ✅ Using CDN URL: ${audioUrl.substring(0, 100)}...`);
-      } else if (fileData.s3_key) {
+        console.log(`   ✅ Using CDN URL: ${fileData.cdn_url.substring(0, 100)}...`);
+      } else if (fileData.path) {
+        // Try Supabase Storage public URL first (if file is in a public bucket)
+        console.log(`   ⚠️ No CDN URL, trying Supabase Storage public URL...`);
+        try {
+          const { data: publicUrlData } = supabase.storage
+            .from('audio')
+            .getPublicUrl(fileData.path);
+          
+          if (publicUrlData?.publicUrl) {
+            // Test if URL is accessible
+            const testResponse = await axios.head(publicUrlData.publicUrl, { timeout: 5000 });
+            if (testResponse.status === 200) {
+              audioUrl = publicUrlData.publicUrl;
+              console.log(`   ✅ Using Supabase Storage public URL: ${audioUrl.substring(0, 100)}...`);
+            } else {
+              throw new Error('Public URL not accessible');
+            }
+          } else {
+            throw new Error('No public URL returned');
+          }
+        } catch (error: any) {
+          console.log(`   ⚠️ Supabase Storage public URL not available: ${error.message}`);
+          // Fall through to signed URL
+        }
+      }
+      
+      // If still no URL, try signed URL from S3
+      if (!audioUrl && fileData.s3_key) {
         console.log(`   ⚠️ No CDN URL, need to generate signed URL from S3`);
         // Get signed URL from Storage API
-        const storageApiUrl = process.env.STORAGE_API_URL || '';
+        let storageApiUrl = process.env.STORAGE_API_URL || '';
         if (!storageApiUrl) {
           throw new Error('STORAGE_API_URL not configured. Cannot generate signed URL for S3 files.');
         }
+        
+        // Normalize URL (remove trailing slash)
+        storageApiUrl = storageApiUrl.replace(/\/+$/, '');
         
         console.log(`   Requesting signed URL for S3 key: ${fileData.s3_key}`);
         console.log(`   Storage API URL: ${storageApiUrl}`);
         
         try {
+          const signedUrlEndpoint = `${storageApiUrl}/api/storage/download-url`;
+          console.log(`   Full endpoint: ${signedUrlEndpoint}`);
+          
           const signedUrlResponse = await axios.post(
-            `${storageApiUrl}/api/storage/download-url`,
+            signedUrlEndpoint,
             {
               objectKey: fileData.s3_key,
               userId: upload.user_id,
@@ -124,7 +157,9 @@ export class UploadProcessorService {
           }
           
           audioUrl = signedUrlResponse.data.data.downloadUrl;
-          console.log(`   ✅ Got signed URL: ${audioUrl.substring(0, 100)}...`);
+          if (audioUrl) {
+            console.log(`   ✅ Got signed URL: ${audioUrl.substring(0, 100)}...`);
+          }
         } catch (error: any) {
           console.error('❌ Failed to get signed URL:', {
             message: error.message,
@@ -135,7 +170,12 @@ export class UploadProcessorService {
           throw new Error(`Failed to generate signed URL: ${error.message}`);
         }
       } else {
-        throw new Error('File has no CDN URL or S3 key');
+        throw new Error('File has no CDN URL, path, or S3 key');
+      }
+
+      // Ensure we have an audio URL
+      if (!audioUrl) {
+        throw new Error('Failed to determine audio URL. File has no accessible URL.');
       }
 
       // Create MP4 video using API service (which has FFmpeg)
