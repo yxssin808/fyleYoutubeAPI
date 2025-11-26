@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import { youtubeRouter } from './routes/youtube.routes.js';
 
 const envFiles = ['.env.local', '.env'];
@@ -156,7 +157,6 @@ app.listen(PORT, () => {
   console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
   
   // Check FFmpeg availability (same logic as VideoProcessingService)
-  const { execSync } = require('child_process');
   const possiblePaths = [
     process.env.FFMPEG_PATH,
     process.env.FFMPEG_BINARY,
