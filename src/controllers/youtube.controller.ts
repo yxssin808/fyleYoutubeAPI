@@ -218,8 +218,11 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
     // Queue upload for processing (if not scheduled)
     if (!scheduledDate) {
       // Process immediately in background (non-blocking)
+      // Use Promise.resolve().then() instead of setImmediate for better Vercel compatibility
       console.log(`🚀 Starting background processing for upload: ${uploadRecord.id}`);
-      setImmediate(async () => {
+      
+      // Start processing without blocking the response
+      Promise.resolve().then(async () => {
         try {
           console.log(`📦 Loading UploadProcessorService...`);
           const { UploadProcessorService } = await import('../services/upload-processor.service.js');
@@ -233,7 +236,21 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
             error: error.message,
             stack: error.stack,
           });
+          
+          // Update status to failed
+          try {
+            const { SupabaseService } = await import('../services/supabase.service.js');
+            const supabaseService = new SupabaseService();
+            await supabaseService.updateYouTubeUpload(uploadRecord.id, {
+              status: 'failed',
+              error_message: error.message || 'Unknown error occurred',
+            });
+          } catch (updateError: any) {
+            console.error('❌ Failed to update upload status:', updateError);
+          }
         }
+      }).catch((error) => {
+        console.error('❌ Promise chain error:', error);
       });
     }
 

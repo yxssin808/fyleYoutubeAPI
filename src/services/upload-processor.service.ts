@@ -63,25 +63,38 @@ export class UploadProcessorService {
         throw new Error('Supabase client not initialized');
       }
       
+      console.log(`   Querying Supabase for file: ${upload.file_id}`);
       const { data: fileData, error: fileError } = await supabase
         .from('files')
         .select('cdn_url, s3_key')
         .eq('id', upload.file_id)
         .single();
 
-      if (fileError || !fileData) {
-        console.error('❌ File query error:', fileError);
-        throw new Error(`File not found in database: ${fileError?.message || 'Unknown error'}`);
+      if (fileError) {
+        console.error('❌ File query error:', {
+          error: fileError,
+          message: fileError.message,
+          code: fileError.code,
+          details: fileError.details,
+        });
+        throw new Error(`File not found in database: ${fileError.message || 'Unknown error'}`);
       }
       
-      console.log(`   File found: cdn_url=${!!fileData.cdn_url}, s3_key=${!!fileData.s3_key}`);
+      if (!fileData) {
+        console.error('❌ File data is null');
+        throw new Error('File not found in database: No data returned');
+      }
+      
+      console.log(`   ✅ File found: cdn_url=${!!fileData.cdn_url}, s3_key=${!!fileData.s3_key}`);
 
       // Get audio URL (prefer CDN, fallback to signed URL)
+      console.log(`   Determining audio URL...`);
       let audioUrl: string;
       if (fileData.cdn_url) {
         audioUrl = fileData.cdn_url;
         console.log(`   ✅ Using CDN URL: ${audioUrl.substring(0, 100)}...`);
       } else if (fileData.s3_key) {
+        console.log(`   ⚠️ No CDN URL, need to generate signed URL from S3`);
         // Get signed URL from Storage API
         const storageApiUrl = process.env.STORAGE_API_URL || '';
         if (!storageApiUrl) {
@@ -130,11 +143,13 @@ export class UploadProcessorService {
       console.log(`   API Base URL: ${this.apiBaseUrl}`);
       console.log(`   Audio URL: ${audioUrl.substring(0, 100)}...`);
       console.log(`   Thumbnail URL: ${upload.thumbnail_url || 'none'}`);
+      console.log(`   About to call API service...`);
       
       let videoResponse;
       try {
         const videoApiUrl = `${this.apiBaseUrl}/api/video/create`;
-        console.log(`   Calling: ${videoApiUrl}`);
+        console.log(`   📞 Calling API: ${videoApiUrl}`);
+        console.log(`   Request body: { audioUrl: '${audioUrl.substring(0, 50)}...', thumbnailUrl: '${upload.thumbnail_url || 'null'}' }`);
         
         videoResponse = await axios.post(
           videoApiUrl,
