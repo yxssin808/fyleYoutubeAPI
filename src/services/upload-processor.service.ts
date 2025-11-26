@@ -49,6 +49,28 @@ export class UploadProcessorService {
         throw new Error('User has not connected YouTube account. Please connect your YouTube account first.');
       }
 
+      // Get YouTube channel info from profiles
+      const supabaseClient = this.supabaseService.client;
+      let channelId: string | null = null;
+      let channelTitle: string | null = null;
+      
+      if (supabaseClient) {
+        try {
+          const { data: profile } = await supabaseClient
+            .from('profiles')
+            .select('youtube_channel_id, youtube_channel_title')
+            .eq('id', upload.user_id)
+            .single();
+          
+          if (profile) {
+            channelId = profile.youtube_channel_id || null;
+            channelTitle = profile.youtube_channel_title || null;
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to fetch channel info:', error);
+        }
+      }
+
       // Initialize YouTube service
       await this.youtubeService.initialize(tokens.access_token, tokens.refresh_token);
 
@@ -226,10 +248,12 @@ export class UploadProcessorService {
           privacyStatus: (upload.privacy_status as 'public' | 'unlisted' | 'private') || 'public', // Default to public
         });
 
-        // Update upload record with success
+        // Update upload record with success and channel info
         await this.supabaseService.updateYouTubeUpload(uploadId, {
           status: 'uploaded',
           youtube_video_id: videoId,
+          youtube_channel_id: channelId,
+          youtube_channel_title: channelTitle,
         });
 
         console.log(`✅ Upload successful: ${videoId} - ${url}`);

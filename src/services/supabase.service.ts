@@ -170,6 +170,8 @@ export class SupabaseService {
     updates: {
       status?: string;
       youtube_video_id?: string;
+      youtube_channel_id?: string | null;
+      youtube_channel_title?: string | null;
       error_message?: string;
     }
   ): Promise<any> {

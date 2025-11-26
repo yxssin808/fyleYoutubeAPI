@@ -186,7 +186,7 @@ export class VideoProcessingService {
         // Use 'ultrafast' preset for lower memory usage (faster encoding, larger file size)
         // Use 'fast' preset as compromise (better quality, still fast)
         .outputOptions(['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']) // Better quality: 'fast' preset, CRF 23 (good quality)
-        .outputOptions(['-c:a', 'aac', '-b:a', '256k']) // Higher audio bitrate for better quality (256k AAC)
+        .outputOptions(['-c:a', 'copy']) // Copy audio without re-encoding (preserves original quality)
         .outputOptions(['-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2']) // Ensure 16:9 aspect ratio (prevents Shorts classification)
         .outputOptions(['-aspect', '16:9']) // Explicitly set aspect ratio to 16:9
         .outputOptions(['-max_muxing_queue_size', '1024']) // Prevent queue overflow

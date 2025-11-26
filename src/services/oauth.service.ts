@@ -48,7 +48,11 @@ export class OAuthService {
   /**
    * Save user's OAuth tokens to database
    */
-  async saveUserTokens(userId: string, tokens: OAuthTokens): Promise<void> {
+  async saveUserTokens(
+    userId: string, 
+    tokens: OAuthTokens,
+    channelInfo?: { channelId?: string | null; channelTitle?: string | null }
+  ): Promise<void> {
     const supabase = getSupabaseClient();
     if (!supabase) {
       throw new Error('Supabase client not initialized');
@@ -76,13 +80,21 @@ export class OAuthService {
         return;
       }
 
+      const updateData: any = {
+        youtube_access_token: tokens.access_token,
+        youtube_refresh_token: tokens.refresh_token || null,
+        youtube_token_expires_at: expiresAt,
+      };
+
+      // Add channel info if provided
+      if (channelInfo) {
+        updateData.youtube_channel_id = channelInfo.channelId || null;
+        updateData.youtube_channel_title = channelInfo.channelTitle || null;
+      }
+
       const { error } = await supabase
         .from('profiles')
-        .update({
-          youtube_access_token: tokens.access_token,
-          youtube_refresh_token: tokens.refresh_token || null,
-          youtube_token_expires_at: expiresAt,
-        })
+        .update(updateData)
         .eq('id', userId);
 
       if (error) {

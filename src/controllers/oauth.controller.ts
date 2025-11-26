@@ -188,12 +188,38 @@ export const callbackController = async (req: Request, res: Response) => {
       ? new Date(tokens.expiry_date).getTime()
       : Date.now() + 3600 * 1000;
 
-    // Save tokens to database
+    // Get YouTube channel information
+    let channelId: string | null = null;
+    let channelTitle: string | null = null;
+    
+    try {
+      oauth2Client.setCredentials(tokens);
+      const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+      const channelResponse = await youtube.channels.list({
+        part: ['snippet', 'id'],
+        mine: true,
+      });
+      
+      if (channelResponse.data.items && channelResponse.data.items.length > 0) {
+        const channel = channelResponse.data.items[0];
+        channelId = channel.id || null;
+        channelTitle = channel.snippet?.title || null;
+        console.log(`✅ YouTube channel info: ${channelTitle} (${channelId})`);
+      }
+    } catch (error: any) {
+      console.warn('⚠️ Failed to fetch YouTube channel info:', error.message);
+      // Continue without channel info - not critical
+    }
+
+    // Save tokens and channel info to database
     const oauthService = new OAuthService();
     await oauthService.saveUserTokens(userId, {
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token || undefined,
       expires_at: expiresAt,
+    }, {
+      channelId,
+      channelTitle,
     });
 
     res.json({
@@ -221,11 +247,8 @@ export const callbackController = async (req: Request, res: Response) => {
 export const statusController = async (req: Request, res: Response) => {
   const userId = req.query.userId as string;
 
-  console.log('🔍 OAuth status check:', { userId });
-
   try {
     if (!userId) {
-      console.error('❌ Missing userId');
       return res.status(400).json({
         error: 'Missing userId',
         message: 'userId query parameter is required',
@@ -236,40 +259,39 @@ export const statusController = async (req: Request, res: Response) => {
     
     try {
       const hasTokens = await oauthService.hasValidTokens(userId);
-      console.log(`✅ OAuth status check completed: ${hasTokens ? 'connected' : 'not connected'}`);
       
       res.json({
         success: true,
         connected: hasTokens,
       });
     } catch (serviceError: any) {
-      console.error('❌ OAuth service error:', {
-        message: serviceError.message,
-        stack: serviceError.stack,
-        userId,
-      });
-      
-      // If it's a Supabase error, provide more details
+      // Don't log errors for missing tokens - that's expected if account is not connected
       if (serviceError.message?.includes('Supabase') || serviceError.message?.includes('not initialized')) {
+        console.error('❌ Database error in OAuth status check:', serviceError.message);
         return res.status(500).json({
           error: 'Database connection error',
           message: 'Failed to connect to database. Please check server configuration.',
         });
       }
       
-      throw serviceError;
+      // For other errors (like missing tokens), just return not connected
+      // This is expected behavior, not an error
+      res.json({
+        success: true,
+        connected: false,
+      });
     }
   } catch (error: any) {
-    console.error('❌ Error checking OAuth status:', {
+    // Only log unexpected errors
+    console.error('❌ Unexpected error checking OAuth status:', {
       error: error.message,
-      stack: error.stack,
-      name: error.name,
       userId,
     });
     
-    res.status(500).json({
-      error: 'Failed to check OAuth status',
-      message: error.message || 'Unknown error occurred',
+    // Return not connected instead of error - this is expected if account is not connected
+    res.json({
+      success: true,
+      connected: false,
     });
   }
 };
