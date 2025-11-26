@@ -67,7 +67,7 @@ export class UploadProcessorService {
       console.log(`   Querying Supabase for file: ${upload.file_id}`);
       console.log(`   Starting query at: ${new Date().toISOString()}`);
       
-      // Add timeout to Supabase query
+      // Add timeout to Supabase query (increased to 60 seconds)
       const queryPromise = supabase
         .from('files')
         .select('cdn_url, s3_key, user_id')
@@ -76,9 +76,9 @@ export class UploadProcessorService {
       
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
-          console.error('❌ Supabase query timeout after 30 seconds');
-          reject(new Error('Supabase query timeout after 30 seconds'));
-        }, 30000);
+          console.error('❌ Supabase query timeout after 60 seconds');
+          reject(new Error('Supabase query timeout after 60 seconds'));
+        }, 60000); // Increased from 30 to 60 seconds
       });
       
       let fileData: any;
@@ -296,7 +296,12 @@ export class UploadProcessorService {
           console.log(`🗑️ Deleted YouTube video: ${upload.youtube_video_id}`);
         }
       } catch (error: any) {
-        console.error('Failed to delete YouTube video:', error);
+        // If video is already deleted (404), that's fine - continue
+        if (error.status === 404 || error.message?.includes('cannot be found') || error.message?.includes('videoNotFound')) {
+          console.log(`⚠️ Video ${upload.youtube_video_id} not found - may already be deleted. Continuing...`);
+        } else {
+          console.error('Failed to delete YouTube video:', error.message || error);
+        }
         // Continue with database deletion even if YouTube deletion fails
       }
     }

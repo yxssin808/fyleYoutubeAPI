@@ -85,8 +85,18 @@ export class YouTubeService {
       if (options.thumbnailUrl && videoId) {
         try {
           await this.uploadThumbnail(videoId, options.thumbnailUrl);
-        } catch (error) {
-          console.warn('Failed to upload thumbnail, continuing:', error);
+          console.log('✅ Thumbnail uploaded successfully');
+        } catch (error: any) {
+          // Check if it's a permissions error (channel not verified)
+          if (error.status === 403 || error.message?.includes('permissions') || error.message?.includes('forbidden')) {
+            console.warn('⚠️ Thumbnail upload failed: Channel verification required');
+            console.warn('   YouTube requires channel verification to upload custom thumbnails.');
+            console.warn('   Video uploaded successfully, but thumbnail was not set.');
+            console.warn('   To enable thumbnails: Verify your YouTube channel at https://www.youtube.com/verify');
+          } else {
+            console.warn('⚠️ Failed to upload thumbnail (non-critical):', error.message || error);
+          }
+          // Continue - thumbnail upload failure is not critical
         }
       }
 
@@ -121,10 +131,13 @@ export class YouTubeService {
           body: thumbnailBuffer,
         },
       });
-    } catch (error: any) {
-      console.error('Thumbnail upload error:', error);
-      throw new Error(error.message || 'Failed to upload thumbnail');
-    }
+      } catch (error: any) {
+        // Re-throw with more context
+        if (error.status === 403 || error.message?.includes('permissions') || error.message?.includes('forbidden')) {
+          throw new Error('Channel verification required: YouTube requires channel verification to upload custom thumbnails. Verify your channel at https://www.youtube.com/verify');
+        }
+        throw new Error(error.message || 'Failed to upload thumbnail');
+      }
   }
 
   /**
@@ -139,7 +152,14 @@ export class YouTubeService {
       await this.youtube.videos.delete({
         id: videoId,
       });
+      console.log(`✅ Successfully deleted YouTube video: ${videoId}`);
     } catch (error: any) {
+      // If video is already deleted (404), treat as success
+      if (error.status === 404 || error.message?.includes('cannot be found') || error.message?.includes('videoNotFound')) {
+        console.log(`⚠️ Video ${videoId} not found - may already be deleted. Treating as success.`);
+        return; // Success - video is already gone
+      }
+      
       console.error('YouTube delete error:', error);
       throw new Error(error.message || 'Failed to delete video from YouTube');
     }
