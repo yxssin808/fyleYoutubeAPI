@@ -82,10 +82,10 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Stricter rate limit for YouTube endpoints
+// Stricter rate limit for YouTube write endpoints (upload, delete, etc.)
 const youtubeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // Limit each IP to 30 YouTube requests per windowMs
+  max: 50, // Limit each IP to 50 YouTube write requests per windowMs (increased from 30)
   message: {
     error: 'Too many YouTube requests from this IP, please try again later.',
     retryAfter: '15 minutes',
