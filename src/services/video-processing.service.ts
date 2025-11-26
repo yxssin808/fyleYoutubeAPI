@@ -1,12 +1,11 @@
 // Video processing service using FFmpeg
-// Creates MP4 video from audio + thumbnail image
+// Creates MP4 video from audio URL and thumbnail image
 import ffmpeg from 'fluent-ffmpeg';
 import axios from 'axios';
 import fs from 'fs/promises';
 import { createWriteStream } from 'fs';
 import path from 'path';
 import os from 'os';
-import { Readable } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 
 export class VideoProcessingService {

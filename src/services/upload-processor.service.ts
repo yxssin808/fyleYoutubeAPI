@@ -70,7 +70,7 @@ export class UploadProcessorService {
       // Add timeout to Supabase query
       const queryPromise = supabase
         .from('files')
-        .select('cdn_url, s3_key, user_id')
+        .select('cdn_url, s3_key, path, user_id')
         .eq('id', upload.file_id)
         .single();
       
@@ -120,14 +120,38 @@ export class UploadProcessorService {
         throw new Error('File not found in database: No data returned');
       }
       
-      console.log(`   ✅ File found: cdn_url=${!!fileData.cdn_url}, s3_key=${!!fileData.s3_key}`);
+      console.log(`   ✅ File found: cdn_url=${!!fileData.cdn_url}, s3_key=${!!fileData.s3_key}, path=${!!fileData.path}`);
 
-      // Get audio URL (prefer CDN, fallback to signed URL from S3)
+      // Get audio URL (prefer CDN, fallback to Supabase Storage public URL, then signed URL)
       console.log(`   Determining audio URL...`);
       let audioUrl: string | undefined = undefined;
       if (fileData.cdn_url) {
         audioUrl = fileData.cdn_url;
         console.log(`   ✅ Using CDN URL: ${fileData.cdn_url.substring(0, 100)}...`);
+      } else if (fileData.path) {
+        // Try Supabase Storage public URL first (if file is in a public bucket)
+        console.log(`   ⚠️ No CDN URL, trying Supabase Storage public URL...`);
+        try {
+          const { data: publicUrlData } = supabase.storage
+            .from('audio')
+            .getPublicUrl(fileData.path);
+          
+          if (publicUrlData?.publicUrl) {
+            // Test if URL is accessible
+            const testResponse = await axios.head(publicUrlData.publicUrl, { timeout: 5000 });
+            if (testResponse.status === 200) {
+              audioUrl = publicUrlData.publicUrl;
+              console.log(`   ✅ Using Supabase Storage public URL: ${audioUrl.substring(0, 100)}...`);
+            } else {
+              throw new Error('Public URL not accessible');
+            }
+          } else {
+            throw new Error('No public URL returned');
+          }
+        } catch (error: any) {
+          console.log(`   ⚠️ Supabase Storage public URL not available: ${error.message}`);
+          // Fall through to signed URL
+        }
       }
       
       // If still no URL, try signed URL from S3
@@ -181,7 +205,7 @@ export class UploadProcessorService {
           throw new Error(`Failed to generate signed URL: ${error.message}`);
         }
       } else {
-        throw new Error('File has no CDN URL or S3 key');
+        throw new Error('File has no CDN URL, path, or S3 key');
       }
 
       // Ensure we have an audio URL
@@ -276,53 +300,34 @@ export class UploadProcessorService {
    * Delete YouTube video and upload record
    */
   async deleteUpload(uploadId: string, userId: string): Promise<void> {
-    console.log(`🗑️ Starting delete process for upload: ${uploadId}, user: ${userId}`);
-
     const upload = await this.supabaseService.getYouTubeUpload(uploadId);
     if (!upload) {
-      console.error(`❌ Upload not found: ${uploadId}`);
       throw new Error('Upload not found');
     }
 
-    console.log(`✅ Upload found: ${uploadId}, status: ${upload.status}, youtube_video_id: ${upload.youtube_video_id || 'none'}`);
-
     // Verify ownership
     if (upload.user_id !== userId) {
-      console.error(`❌ Ownership mismatch: upload.user_id=${upload.user_id}, provided userId=${userId}`);
       throw new Error('Unauthorized: You do not own this upload');
     }
 
-    console.log('✅ Ownership verified');
-
     // If video was uploaded, delete from YouTube
     if (upload.youtube_video_id && upload.status === 'uploaded') {
-      console.log(`🎬 Attempting to delete YouTube video: ${upload.youtube_video_id}`);
       try {
         const tokens = await this.oauthService.getUserTokens(userId);
         if (tokens) {
-          console.log('✅ OAuth tokens found, initializing YouTube service...');
           await this.youtubeService.initialize(tokens.access_token, tokens.refresh_token);
           await this.youtubeService.deleteVideo(upload.youtube_video_id);
-          console.log(`✅ Deleted YouTube video: ${upload.youtube_video_id}`);
-        } else {
-          console.warn('⚠️ No OAuth tokens found, skipping YouTube video deletion');
+          console.log(`🗑️ Deleted YouTube video: ${upload.youtube_video_id}`);
         }
       } catch (error: any) {
-        console.error('❌ Failed to delete YouTube video:', {
-          error: error.message,
-          stack: error.stack,
-          youtube_video_id: upload.youtube_video_id,
-        });
+        console.error('Failed to delete YouTube video:', error);
         // Continue with database deletion even if YouTube deletion fails
       }
-    } else {
-      console.log('ℹ️ No YouTube video to delete (status not uploaded or no video_id)');
     }
 
     // Delete from database
-    console.log('🗄️ Deleting upload record from database...');
     await this.supabaseService.deleteYouTubeUpload(uploadId, userId);
-    console.log(`✅ Deleted upload record: ${uploadId}`);
+    console.log(`🗑️ Deleted upload record: ${uploadId}`);
   }
 }
 

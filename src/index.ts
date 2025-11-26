@@ -126,32 +126,21 @@ app.get('/health', healthLimiter, (_, res) => {
   res.json({ status: 'ok', service: 'youtube-api', timestamp: new Date().toISOString() });
 });
 
-// Error handler middleware (must be last)
-app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('❌ YouTube API error handler triggered:', {
-    message: err.message,
-    stack: err.stack,
-    name: err.name,
-    code: err.code,
-    status: err.status,
-    url: req.url,
-    method: req.method,
-    body: req.body,
-    query: req.query,
-    params: req.params,
-  });
-  
-  const statusCode = err.status || err.statusCode || 500;
-  res.status(statusCode).json({
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('❌ YouTube API error:', err);
+  res.status(err.status || 500).json({
     error: err.code || 'INTERNAL_ERROR',
     message: err.message || 'Unexpected server error',
   });
 });
 
-// Start the server (Railway or local development)
-app.listen(PORT, () => {
-  console.log(`🚀 YouTube API listening on port ${PORT}`);
-  console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🎬 FFmpeg: Available for video processing`);
-});
+// For Vercel serverless, export the handler
+export default app;
+
+// For local development, start the server
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 YouTube API listening on port ${PORT}`);
+  });
+}
 
