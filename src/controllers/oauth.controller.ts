@@ -25,7 +25,7 @@ export const authorizeController = async (req: Request, res: Response) => {
   });
 
   try {
-    const { redirect_uri } = req.body;
+    let { redirect_uri } = req.body;
 
     if (!redirect_uri) {
       console.error('❌ Missing redirect_uri in request body');
@@ -35,7 +35,26 @@ export const authorizeController = async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`✅ Redirect URI received: ${redirect_uri}`);
+    // Normalize redirect_uri: remove trailing slashes
+    redirect_uri = redirect_uri.replace(/\/+$/, '');
+    
+    // Validate redirect_uri format
+    try {
+      const url = new URL(redirect_uri);
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return res.status(400).json({
+          error: 'Invalid redirect_uri',
+          message: 'redirect_uri must use http or https protocol',
+        });
+      }
+    } catch (urlError) {
+      return res.status(400).json({
+        error: 'Invalid redirect_uri',
+        message: 'redirect_uri must be a valid URL',
+      });
+    }
+
+    console.log(`✅ Redirect URI received and normalized: ${redirect_uri}`);
 
     // Validate Google OAuth credentials
     if (!process.env.GOOGLE_CLIENT_ID) {
