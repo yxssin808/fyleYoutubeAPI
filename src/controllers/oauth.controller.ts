@@ -8,15 +8,26 @@ import { OAuthService } from '../services/oauth.service.js';
  * Generate OAuth authorization URL
  */
 export const authorizeController = async (req: Request, res: Response) => {
+  console.log('🔐 OAuth authorize request received:', {
+    method: req.method,
+    url: req.url,
+    body: req.body,
+    hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+    hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+  });
+
   try {
     const { redirect_uri } = req.body;
 
     if (!redirect_uri) {
+      console.error('❌ Missing redirect_uri in request body');
       return res.status(400).json({
         error: 'Missing redirect_uri',
         message: 'redirect_uri is required',
       });
     }
+
+    console.log(`✅ Redirect URI received: ${redirect_uri}`);
 
     // Validate Google OAuth credentials
     if (!process.env.GOOGLE_CLIENT_ID) {
@@ -35,37 +46,68 @@ export const authorizeController = async (req: Request, res: Response) => {
       });
     }
 
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri
-    );
+    console.log('✅ Google OAuth credentials found');
 
-    // Request YouTube-specific scopes
-    const scopes = [
-      'https://www.googleapis.com/auth/youtube.upload',
-      'https://www.googleapis.com/auth/youtube',
-    ];
+    try {
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri
+      );
 
-    // Force account selection by adding login_hint parameter removal and prompt
-    // This ensures users can always select a different account
-    const authUrl = oauth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: scopes,
-      prompt: 'select_account consent', // Allow user to select account AND force consent screen
-      // Add a random state parameter to prevent caching
-      state: `youtube_oauth_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-    });
+      console.log('✅ OAuth2 client created');
 
-    res.json({
-      success: true,
-      auth_url: authUrl,
-    });
+      // Request YouTube-specific scopes
+      const scopes = [
+        'https://www.googleapis.com/auth/youtube.upload',
+        'https://www.googleapis.com/auth/youtube',
+      ];
+
+      console.log('✅ Scopes defined:', scopes);
+
+      // Force account selection by adding login_hint parameter removal and prompt
+      // This ensures users can always select a different account
+      const authUrl = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: scopes,
+        prompt: 'select_account consent', // Allow user to select account AND force consent screen
+        // Add a random state parameter to prevent caching
+        state: `youtube_oauth_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      });
+
+      console.log('✅ Auth URL generated successfully');
+      console.log(`   Auth URL length: ${authUrl.length} characters`);
+      console.log(`   Auth URL preview: ${authUrl.substring(0, 100)}...`);
+
+      res.json({
+        success: true,
+        auth_url: authUrl,
+      });
+    } catch (oauthError: any) {
+      console.error('❌ Error creating OAuth2 client or generating URL:', {
+        error: oauthError.message,
+        stack: oauthError.stack,
+        name: oauthError.name,
+        clientId: process.env.GOOGLE_CLIENT_ID ? `${process.env.GOOGLE_CLIENT_ID.substring(0, 20)}...` : 'missing',
+        hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri,
+      });
+      throw oauthError;
+    }
   } catch (error: any) {
-    console.error('❌ Error generating OAuth URL:', error);
+    console.error('❌ Error generating OAuth URL:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code,
+      url: req.url,
+      method: req.method,
+      body: req.body,
+    });
+    
     res.status(500).json({
       error: 'Failed to generate OAuth URL',
-      message: error.message,
+      message: error.message || 'Unknown error occurred',
     });
   }
 };
