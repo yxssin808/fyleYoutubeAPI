@@ -396,6 +396,65 @@ export const deleteYouTubeUploadController = async (req: Request, res: Response)
 };
 
 /**
+ * PUT /api/youtube/upload/:id/archive
+ * Archive or unarchive a YouTube upload
+ */
+export const archiveYouTubeUploadController = async (req: Request, res: Response) => {
+  try {
+    const uploadId = req.params.id;
+    const { userId, archived } = req.body;
+
+    if (!uploadId || !userId || typeof archived !== 'boolean') {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'uploadId, userId, and archived (boolean) are required',
+      });
+    }
+
+    const sanitizedUserId = sanitizeString(userId);
+    const sanitizedUploadId = sanitizeString(uploadId);
+    const supabaseService = new SupabaseService();
+
+    // Verify upload belongs to user
+    const { data: upload, error: fetchError } = await supabaseService.client
+      .from('youtube_uploads')
+      .select('id, user_id')
+      .eq('id', sanitizedUploadId)
+      .eq('user_id', sanitizedUserId)
+      .single();
+
+    if (fetchError || !upload) {
+      return res.status(404).json({
+        error: 'Upload not found',
+        message: 'Upload does not exist or you do not have permission to modify it',
+      });
+    }
+
+    // Update archived status
+    const { data: updatedUpload, error: updateError } = await supabaseService.updateYouTubeUpload(
+      sanitizedUploadId,
+      { archived }
+    );
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    res.json({
+      success: true,
+      upload: updatedUpload,
+      message: archived ? 'Upload archived successfully' : 'Upload unarchived successfully',
+    });
+  } catch (error: any) {
+    console.error('❌ Error archiving YouTube upload:', error);
+    res.status(500).json({
+      error: 'Failed to archive YouTube upload',
+      message: error.message,
+    });
+  }
+};
+
+/**
  * POST /api/youtube/process
  * Manually trigger processing of pending uploads (admin/internal use)
  */

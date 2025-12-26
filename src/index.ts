@@ -135,8 +135,9 @@ app.use(
 
 app.use(express.json());
 
-// YouTube routes with stricter rate limiting (includes templates)
-app.use('/api/youtube', youtubeLimiter, youtubeRouter);
+// YouTube routes - rate limiting is handled per-route in youtubeRouter
+// Template routes have their own moderate rate limiting, upload routes use youtubeLimiter
+app.use('/api/youtube', youtubeRouter);
 
 // Health check with loose rate limiting
 app.get('/health', healthLimiter, (_, res) => {

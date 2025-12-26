@@ -137,18 +137,23 @@ export class SupabaseService {
   /**
    * Get user's YouTube uploads
    */
-  async getYouTubeUploads(userId: string): Promise<any[]> {
+  async getYouTubeUploads(userId: string, includeArchived: boolean = false): Promise<any[]> {
     try {
       const supabase = getSupabaseClient();
       if (!supabase) {
         return [];
       }
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('youtube_uploads')
         .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+        .eq('user_id', userId);
+
+      if (!includeArchived) {
+        query = query.or('archived.is.null,archived.eq.false');
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching YouTube uploads:', error);
@@ -173,6 +178,7 @@ export class SupabaseService {
       youtube_channel_id?: string | null;
       youtube_channel_title?: string | null;
       error_message?: string;
+      archived?: boolean;
     }
   ): Promise<any> {
     try {

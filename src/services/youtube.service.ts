@@ -17,6 +17,7 @@ export class YouTubeService {
 
   /**
    * Initialize YouTube API client with OAuth2
+   * Automatically refreshes token if needed
    */
   async initialize(accessToken: string, refreshToken?: string): Promise<void> {
     const oauth2Client = new google.auth.OAuth2(
@@ -30,13 +31,16 @@ export class YouTubeService {
       refresh_token: refreshToken,
     });
 
-    // Refresh token if needed
+    // Always try to refresh token if we have a refresh token
+    // This ensures we have a fresh access token
     if (refreshToken) {
       try {
         const { credentials } = await oauth2Client.refreshAccessToken();
         oauth2Client.setCredentials(credentials);
-      } catch (error) {
-        console.error('Failed to refresh access token:', error);
+        console.log('✅ Access token refreshed successfully');
+      } catch (error: any) {
+        console.error('⚠️ Failed to refresh access token:', error.message || error);
+        // Continue with existing token - it might still be valid
       }
     }
 

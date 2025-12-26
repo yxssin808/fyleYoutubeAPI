@@ -1,5 +1,6 @@
 // OAuth2 service for Google/YouTube authentication
 import { getSupabaseClient } from '../lib/supabaseClient.js';
+import { google } from 'googleapis';
 
 export interface OAuthTokens {
   access_token: string;
@@ -9,7 +10,7 @@ export interface OAuthTokens {
 
 export class OAuthService {
   /**
-   * Get user's OAuth tokens from database
+   * Get user's OAuth tokens from database and refresh if needed
    */
   async getUserTokens(userId: string): Promise<OAuthTokens | null> {
     const supabase = getSupabaseClient();
@@ -34,15 +35,76 @@ export class OAuthService {
         return null;
       }
 
+      const expiresAt = data.youtube_token_expires_at ? new Date(data.youtube_token_expires_at).getTime() : undefined;
+      const refreshToken = data.youtube_refresh_token || undefined;
+
+      // Check if token is expired or will expire within 5 minutes
+      const now = Date.now();
+      const fiveMinutes = 5 * 60 * 1000;
+      const isExpiredOrExpiringSoon = !expiresAt || (expiresAt - now) < fiveMinutes;
+
+      // If token is expired or expiring soon, and we have a refresh token, refresh it
+      if (isExpiredOrExpiringSoon && refreshToken) {
+        console.log(`🔄 Token expired or expiring soon for user ${userId}, refreshing...`);
+        try {
+          const refreshedTokens = await this.refreshAccessToken(refreshToken);
+          
+          // Save the new tokens to database
+          await this.saveUserTokens(userId, {
+            access_token: refreshedTokens.access_token,
+            refresh_token: refreshedTokens.refresh_token || refreshToken, // Keep old refresh token if new one not provided
+            expires_at: refreshedTokens.expires_at,
+          });
+
+          return refreshedTokens;
+        } catch (refreshError: any) {
+          console.error('❌ Failed to refresh access token:', refreshError);
+          // If refresh fails, return the old token anyway (might still work)
+          // But log the error for debugging
+        }
+      }
+
       return {
         access_token: data.youtube_access_token,
-        refresh_token: data.youtube_refresh_token || undefined,
-        expires_at: data.youtube_token_expires_at ? new Date(data.youtube_token_expires_at).getTime() : undefined,
+        refresh_token: refreshToken,
+        expires_at: expiresAt,
       };
     } catch (error) {
       console.error('Error fetching OAuth tokens:', error);
       return null;
     }
+  }
+
+  /**
+   * Refresh access token using refresh token
+   */
+  private async refreshAccessToken(refreshToken: string): Promise<OAuthTokens> {
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+
+    oauth2Client.setCredentials({
+      refresh_token: refreshToken,
+    });
+
+    const { credentials } = await oauth2Client.refreshAccessToken();
+
+    if (!credentials.access_token) {
+      throw new Error('No access token received from refresh');
+    }
+
+    // Calculate expiration time (default: 1 hour from now)
+    const expiresAt = credentials.expiry_date
+      ? new Date(credentials.expiry_date).getTime()
+      : Date.now() + 3600 * 1000;
+
+    return {
+      access_token: credentials.access_token,
+      refresh_token: credentials.refresh_token || refreshToken, // Keep old refresh token if new one not provided
+      expires_at: expiresAt,
+    };
   }
 
   /**
@@ -108,6 +170,9 @@ export class OAuthService {
 
   /**
    * Check if user has valid OAuth tokens
+   * Returns true if user has tokens (access token or refresh token)
+   * Refresh tokens are valid for a long time (typically 6 months), so if we have a refresh token,
+   * we can always get a new access token
    */
   async hasValidTokens(userId: string): Promise<boolean> {
     const tokens = await this.getUserTokens(userId);
@@ -115,7 +180,12 @@ export class OAuthService {
       return false;
     }
 
-    // Check if token is expired
+    // If we have a refresh token, tokens are valid (we can always refresh)
+    if (tokens.refresh_token) {
+      return true;
+    }
+
+    // If no refresh token, check if access token is still valid
     if (tokens.expires_at && tokens.expires_at < Date.now()) {
       return false;
     }

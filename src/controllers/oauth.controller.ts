@@ -94,10 +94,12 @@ export const authorizeController = async (req: Request, res: Response) => {
 
       // Force account selection by adding login_hint parameter removal and prompt
       // This ensures users can always select a different account
+      // access_type: 'offline' is required to get a refresh token
+      // prompt: 'consent' forces Google to show consent screen and return refresh token
       const authUrl = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: scopes,
-        prompt: 'select_account consent', // Allow user to select account AND force consent screen
+        prompt: 'select_account consent', // Allow user to select account AND force consent screen to get refresh token
         // Add a random state parameter to prevent caching
         state: `youtube_oauth_${Date.now()}_${Math.random().toString(36).substring(7)}`,
       });
@@ -181,6 +183,13 @@ export const callbackController = async (req: Request, res: Response) => {
 
     if (!tokens.access_token) {
       throw new Error('No access token received');
+    }
+
+    // Warn if no refresh token (needed for long-term access)
+    if (!tokens.refresh_token) {
+      console.warn('⚠️ No refresh token received. User may need to re-authorize after token expires.');
+      console.warn('   This can happen if the user has already authorized the app before.');
+      console.warn('   To get a refresh token, the user must revoke access and re-authorize.');
     }
 
     // Calculate expiration time (default: 1 hour from now)

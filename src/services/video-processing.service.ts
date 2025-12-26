@@ -164,32 +164,32 @@ export class VideoProcessingService {
         command.inputOptions(['-loop', '1', '-framerate', '1']);
       } else {
         // Create solid color background (1280x720, black) using lavfi
-        command.input('color=c=black:s=1280x720:d=1')
+        // Use a longer duration to ensure it covers the entire audio length
+        command.input('color=c=black:s=1280x720:d=3600')
           .inputFormat('lavfi')
           .inputOptions(['-framerate', '1']);
       }
 
       // Video settings - optimized for quality while maintaining reasonable processing time
-      // Using 'fast' preset for good quality/speed balance, higher audio bitrate for better sound
+      // Map streams first, then set codecs
       command
-        .videoCodec('libx264')
-        .audioCodec('aac')
+        .outputOptions(['-map', '0:a']) // Map audio from first input (audio file)
+        .outputOptions(['-map', '1:v']) // Map video from second input (thumbnail or color)
         .outputOptions([
+          '-c:v', 'libx264', // Video codec
+          '-preset', 'fast', // Encoding preset (balance between speed and quality)
+          '-crf', '23', // Constant Rate Factor (quality setting, lower = better quality)
           '-pix_fmt', 'yuv420p', // Required for YouTube compatibility
-          '-shortest', // End when shortest input ends (audio)
           '-r', '1', // 1 frame per second (static image)
           '-threads', '2', // Limit threads to reduce memory usage
           '-movflags', '+faststart', // Enable fast start for web playback
+          '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2', // Ensure 16:9 aspect ratio
+          '-aspect', '16:9', // Explicitly set aspect ratio to 16:9
+          '-c:a', 'aac', // Audio codec
+          '-b:a', '192k', // Audio bitrate
+          '-shortest', // End when shortest input ends (audio)
+          '-max_muxing_queue_size', '1024', // Prevent queue overflow
         ])
-        .outputOptions(['-map', '0:a']) // Map audio from first input (audio file)
-        .outputOptions(['-map', '1:v']) // Map video from second input (thumbnail or color)
-        // Use 'ultrafast' preset for lower memory usage (faster encoding, larger file size)
-        // Use 'fast' preset as compromise (better quality, still fast)
-        .outputOptions(['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']) // Better quality: 'fast' preset, CRF 23 (good quality)
-        .outputOptions(['-c:a', 'copy']) // Copy audio without re-encoding (preserves original quality)
-        .outputOptions(['-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2']) // Ensure 16:9 aspect ratio (prevents Shorts classification)
-        .outputOptions(['-aspect', '16:9']) // Explicitly set aspect ratio to 16:9
-        .outputOptions(['-max_muxing_queue_size', '1024']) // Prevent queue overflow
         .output(videoPath)
         .on('start', (cmd: string) => {
           console.log('🎬 FFmpeg command:', cmd);
