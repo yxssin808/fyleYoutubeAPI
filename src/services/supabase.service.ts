@@ -244,18 +244,10 @@ export class SupabaseService {
         console.log(`📋 Found ${allPendingData?.length || 0} total pending uploads`);
       }
 
-      // Filter in JavaScript: not scheduled OR scheduled time has passed
-      const pendingData = (allPendingData || []).filter((upload: any) => {
-        if (!upload.scheduled_at) {
-          return true; // Not scheduled, ready to process
-        }
-        const scheduledDate = new Date(upload.scheduled_at);
-        const isReady = scheduledDate <= now;
-        if (!isReady) {
-          console.log(`⏭️ Upload ${upload.id} scheduled for ${upload.scheduled_at}, not ready yet`);
-        }
-        return isReady;
-      });
+      // All pending uploads are ready to process
+      // Scheduled uploads are uploaded immediately with publishAt parameter
+      // YouTube handles the scheduling, not us
+      const pendingData = allPendingData || [];
 
       console.log(`✅ Found ${pendingData.length} pending uploads ready to process`);
 

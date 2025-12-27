@@ -37,15 +37,9 @@ export class UploadProcessorService {
       return;
     }
 
-    // Check if scheduled upload is ready
-    if (upload.scheduled_at) {
-      const scheduledDate = new Date(upload.scheduled_at);
-      const now = new Date();
-      if (scheduledDate > now) {
-        console.log(`⏭️ Upload ${uploadId} scheduled for ${scheduledDate.toISOString()}, not ready yet`);
-        return;
-      }
-    }
+    // Note: Scheduled uploads are processed IMMEDIATELY
+    // YouTube's publishAt parameter handles the scheduling
+    // We don't wait for the scheduled date - we upload now with publishAt set
 
     // Check if already processing - but allow retry if stuck for more than 10 minutes
     if (upload.status === 'processing') {
@@ -62,11 +56,6 @@ export class UploadProcessorService {
     }
 
     // Mark as processing to prevent duplicate processing
-    await this.supabaseService.updateYouTubeUpload(uploadId, {
-      status: 'processing',
-    });
-
-    // Update status to processing
     await this.supabaseService.updateYouTubeUpload(uploadId, {
       status: 'processing',
     });

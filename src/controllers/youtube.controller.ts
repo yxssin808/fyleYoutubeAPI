@@ -225,23 +225,20 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
     console.log('✅ YouTube upload record created:', uploadRecord.id);
 
     // Queue upload for processing (background worker will pick it up)
-    // For immediate uploads, try to process right away, but worker will catch it if it fails
-    if (!scheduledDate) {
-      // Try to process immediately in background (non-blocking)
-      Promise.resolve().then(async () => {
-        try {
-          const { UploadProcessorService } = await import('../services/upload-processor.service.js');
-          const processor = new UploadProcessorService();
-          await processor.processUpload(uploadRecord.id);
-        } catch (error: any) {
-          // Error is logged in processUpload, worker will retry
-          console.error('❌ Immediate processing failed, worker will retry:', uploadRecord.id);
-        }
-      }).catch(() => {
-        // Silently fail - worker will pick it up
-      });
-    }
-    // For scheduled uploads, the background worker will process them when ready
+    // Both immediate and scheduled uploads are processed immediately
+    // Scheduled uploads use YouTube's publishAt parameter for scheduling
+    Promise.resolve().then(async () => {
+      try {
+        const { UploadProcessorService } = await import('../services/upload-processor.service.js');
+        const processor = new UploadProcessorService();
+        await processor.processUpload(uploadRecord.id);
+      } catch (error: any) {
+        // Error is logged in processUpload, worker will retry
+        console.error('❌ Immediate processing failed, worker will retry:', uploadRecord.id);
+      }
+    }).catch(() => {
+      // Silently fail - worker will pick it up
+    });
 
     res.json({
       success: true,
