@@ -415,6 +415,14 @@ export const archiveYouTubeUploadController = async (req: Request, res: Response
     const sanitizedUploadId = sanitizeString(uploadId);
     const supabaseService = new SupabaseService();
 
+    // Check if Supabase client is available
+    if (!supabaseService.client) {
+      return res.status(500).json({
+        error: 'Database connection failed',
+        message: 'Unable to connect to database',
+      });
+    }
+
     // Verify upload belongs to user
     const { data: upload, error: fetchError } = await supabaseService.client
       .from('youtube_uploads')
