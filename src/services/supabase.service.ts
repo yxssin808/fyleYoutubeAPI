@@ -66,33 +66,160 @@ export class SupabaseService {
   }
 
   /**
-   * Count user's YouTube uploads this month
+   * Get user's plan start date (when current subscription period started)
+   * Uses subscription period start, account creation, or first upload date
+   * IMPORTANT: If plan was changed (downgrade/upgrade), uses updated_at as new start date
+   * Returns the start of the current 30-day billing period
+   */
+  async getPlanStartDate(userId: string): Promise<Date> {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        // Fallback: use current month start
+        return new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      }
+
+      // Try to get subscription period info and updated_at from profiles
+      // updated_at is automatically updated when plan changes (downgrade/upgrade)
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('stripe_subscription_current_period_end, created_at, updated_at, plan')
+        .eq('id', userId)
+        .single();
+
+      let baseDate: Date | null = null;
+      let planUpdatedAt: Date | null = null;
+
+      if (!profileError && profile) {
+        // Check if plan was recently updated (downgrade/upgrade)
+        // updated_at is set when plan changes
+        if (profile.updated_at) {
+          planUpdatedAt = new Date(profile.updated_at);
+        }
+
+        // If we have a subscription period end, calculate period start (30 days before)
+        if (profile.stripe_subscription_current_period_end) {
+          const periodEnd = new Date(profile.stripe_subscription_current_period_end);
+          // Calculate period start (30 days before period end)
+          const periodStart = new Date(periodEnd);
+          periodStart.setDate(periodStart.getDate() - 30);
+          baseDate = periodStart;
+        }
+        
+        // Otherwise, use account creation date
+        if (!baseDate && profile.created_at) {
+          baseDate = new Date(profile.created_at);
+        }
+      }
+
+      // Fallback: get the date of the first YouTube upload
+      if (!baseDate) {
+        const { data: firstUpload, error: uploadError } = await supabase
+          .from('youtube_uploads')
+          .select('created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single();
+
+        if (!uploadError && firstUpload?.created_at) {
+          baseDate = new Date(firstUpload.created_at);
+        }
+      }
+
+      // IMPORTANT: If plan was updated (downgrade/upgrade), use updated_at as new start date
+      // This ensures rate limiting resets when plan changes
+      if (planUpdatedAt && baseDate) {
+        // If plan was updated more recently than the base date, use updated_at
+        // This handles downgrades where rate limiting should reset
+        if (planUpdatedAt > baseDate) {
+          console.log('📅 Plan was updated - using updated_at as new start date:', {
+            userId,
+            planUpdatedAt: planUpdatedAt.toISOString(),
+            oldBaseDate: baseDate.toISOString(),
+            plan: profile?.plan,
+          });
+          baseDate = planUpdatedAt;
+        }
+      } else if (planUpdatedAt && !baseDate) {
+        // If we don't have a base date but have updated_at, use it
+        baseDate = planUpdatedAt;
+      }
+
+      // If we have a base date, calculate the current 30-day period start
+      if (baseDate) {
+        const now = new Date();
+        const daysSinceBase = Math.floor((now.getTime() - baseDate.getTime()) / (1000 * 60 * 60 * 24));
+        // Calculate which 30-day period we're in
+        const periodNumber = Math.floor(daysSinceBase / 30);
+        const currentPeriodStart = new Date(baseDate);
+        currentPeriodStart.setDate(currentPeriodStart.getDate() + (periodNumber * 30));
+        return currentPeriodStart;
+      }
+
+      // Final fallback: use current month start
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+    } catch (error) {
+      console.error('Exception fetching plan start date:', error);
+      // Fallback: use current month start
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+  }
+
+  /**
+   * Count user's YouTube uploads in current billing period
+   * Uses rolling 30-day window from plan start date (subscription period start)
+   * instead of calendar month
    */
   async getMonthlyUploadCount(userId: string): Promise<number> {
     try {
       const supabase = getSupabaseClient();
       if (!supabase) {
-        return 0;
+        // If database is unavailable, return a high number to block uploads (fail-safe)
+        console.error('⚠️ Database unavailable - blocking uploads for safety');
+        return 999999;
       }
 
+      // Get plan start date (subscription period start or account creation)
+      const planStartDate = await this.getPlanStartDate(userId);
+      
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      // Calculate the current 30-day period start
+      // This creates a rolling 30-day window from the plan start date
+      const daysSinceStart = Math.floor((now.getTime() - planStartDate.getTime()) / (1000 * 60 * 60 * 24));
+      const periodNumber = Math.floor(daysSinceStart / 30);
+      const currentPeriodStart = new Date(planStartDate);
+      currentPeriodStart.setDate(currentPeriodStart.getDate() + (periodNumber * 30));
+
+      console.log('📅 Upload count period:', {
+        userId,
+        planStartDate: planStartDate.toISOString(),
+        currentPeriodStart: currentPeriodStart.toISOString(),
+        now: now.toISOString(),
+        daysSinceStart,
+        periodNumber,
+      });
 
       const { count, error } = await supabase
         .from('youtube_uploads')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', userId)
-        .gte('created_at', startOfMonth.toISOString());
+        .gte('created_at', currentPeriodStart.toISOString());
 
       if (error) {
         console.error('Error counting monthly uploads:', error);
-        return 0;
+        // If database query fails, return a high number to block uploads (fail-safe)
+        return 999999;
       }
 
       return count || 0;
     } catch (error) {
       console.error('Exception counting monthly uploads:', error);
-      return 0;
+      // If exception occurs, return a high number to block uploads (fail-safe)
+      return 999999;
     }
   }
 
