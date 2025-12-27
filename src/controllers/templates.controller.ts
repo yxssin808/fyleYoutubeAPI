@@ -150,6 +150,16 @@ export const updateTemplateController = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { userId, name, description, is_default } = req.body;
 
+    console.log('📝 Update template request:', { 
+      id, 
+      userId, 
+      name: name !== undefined, 
+      description: description !== undefined, 
+      is_default,
+      is_defaultType: typeof is_default,
+      body: req.body 
+    });
+
     if (!userId || !id) {
       return res.status(400).json({
         error: 'Missing required fields',
@@ -198,7 +208,7 @@ export const updateTemplateController = async (req: Request, res: Response) => {
     }
     // Handle is_default flag (can be boolean true/false or undefined)
     if (is_default !== undefined) {
-      const shouldBeDefault = is_default === true;
+      const shouldBeDefault = is_default === true || is_default === 'true';
       // If setting as default, unset all other defaults for this user first
       if (shouldBeDefault) {
         const { error: unsetError } = await supabase
@@ -217,12 +227,19 @@ export const updateTemplateController = async (req: Request, res: Response) => {
       updateData.is_default = shouldBeDefault;
     }
 
+    // Check if we have at least one field to update
+    // is_default is always valid if provided, even if it's false
     if (Object.keys(updateData).length === 0) {
       console.error('No valid fields to update:', { name, description, is_default, body: req.body });
       return res.status(400).json({
         error: 'No valid fields to update',
         message: 'At least one field (name, description, or is_default) must be provided',
-        received: { name: name !== undefined, description: description !== undefined, is_default: is_default !== undefined },
+        received: { 
+          name: name !== undefined, 
+          description: description !== undefined, 
+          is_default: is_default !== undefined,
+          body: req.body 
+        },
       });
     }
 
