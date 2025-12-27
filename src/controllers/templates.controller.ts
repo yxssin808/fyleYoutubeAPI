@@ -148,12 +148,13 @@ export const createTemplateController = async (req: Request, res: Response) => {
 export const updateTemplateController = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { userId, name, description } = req.body;
+    const { userId, name, description, is_default } = req.body;
 
     if (!userId || !id) {
       return res.status(400).json({
         error: 'Missing required fields',
         required: ['userId', 'id'],
+        received: { userId: !!userId, id: !!id },
       });
     }
 
@@ -195,12 +196,37 @@ export const updateTemplateController = async (req: Request, res: Response) => {
     if (description !== undefined) {
       updateData.description = sanitizeString(description).trim();
     }
+    // Handle is_default flag (can be boolean true/false or undefined)
+    if (is_default !== undefined) {
+      const shouldBeDefault = is_default === true;
+      // If setting as default, unset all other defaults for this user first
+      if (shouldBeDefault) {
+        const { error: unsetError } = await supabase
+          .from('youtube_description_templates')
+          .update({ is_default: false })
+          .eq('user_id', sanitizedUserId)
+          .eq('is_system', false)
+          .neq('id', sanitizedId);
+        
+        if (unsetError) {
+          console.error('Error unsetting other defaults:', unsetError);
+          // Continue anyway, as this is not critical
+        }
+      }
+      // Always set is_default, even if it's the same value (allows re-setting default)
+      updateData.is_default = shouldBeDefault;
+    }
 
     if (Object.keys(updateData).length === 0) {
+      console.error('No valid fields to update:', { name, description, is_default, body: req.body });
       return res.status(400).json({
         error: 'No valid fields to update',
+        message: 'At least one field (name, description, or is_default) must be provided',
+        received: { name: name !== undefined, description: description !== undefined, is_default: is_default !== undefined },
       });
     }
+
+    console.log('Updating template:', { id: sanitizedId, userId: sanitizedUserId, updateData });
 
     const { data: template, error } = await supabase
       .from('youtube_description_templates')
