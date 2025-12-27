@@ -217,6 +217,7 @@ export class SupabaseService {
     try {
       const supabase = getSupabaseClient();
       if (!supabase) {
+        console.warn('⚠️ Supabase client not available for getPendingUploads');
         return [];
       }
 
@@ -224,14 +225,39 @@ export class SupabaseService {
       const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000).toISOString();
       const nowISO = now.toISOString();
 
-      // Get pending uploads that are ready (not scheduled or scheduled time has passed)
-      const { data: pendingData, error: pendingError } = await supabase
+      console.log('🔍 Querying pending uploads:', {
+        now: nowISO,
+        tenMinutesAgo,
+      });
+
+      // Get ALL pending uploads first (without scheduled_at filter)
+      const { data: allPendingData, error: allPendingError } = await supabase
         .from('youtube_uploads')
         .select('*')
         .eq('status', 'pending')
-        .or(`scheduled_at.is.null,scheduled_at.lte.${nowISO}`)
         .order('created_at', { ascending: true })
-        .limit(10);
+        .limit(20);
+
+      if (allPendingError) {
+        console.error('❌ Error fetching all pending uploads:', allPendingError);
+      } else {
+        console.log(`📋 Found ${allPendingData?.length || 0} total pending uploads`);
+      }
+
+      // Filter in JavaScript: not scheduled OR scheduled time has passed
+      const pendingData = (allPendingData || []).filter((upload: any) => {
+        if (!upload.scheduled_at) {
+          return true; // Not scheduled, ready to process
+        }
+        const scheduledDate = new Date(upload.scheduled_at);
+        const isReady = scheduledDate <= now;
+        if (!isReady) {
+          console.log(`⏭️ Upload ${upload.id} scheduled for ${upload.scheduled_at}, not ready yet`);
+        }
+        return isReady;
+      });
+
+      console.log(`✅ Found ${pendingData.length} pending uploads ready to process`);
 
       // Get stuck processing uploads (processing for more than 10 minutes)
       const { data: stuckData, error: stuckError } = await supabase
@@ -242,11 +268,10 @@ export class SupabaseService {
         .order('updated_at', { ascending: true })
         .limit(5);
 
-      if (pendingError) {
-        console.error('Error fetching pending uploads:', pendingError);
-      }
       if (stuckError) {
-        console.error('Error fetching stuck uploads:', stuckError);
+        console.error('❌ Error fetching stuck uploads:', stuckError);
+      } else {
+        console.log(`📋 Found ${stuckData?.length || 0} stuck processing uploads`);
       }
 
       const pending = pendingData || [];
@@ -256,9 +281,11 @@ export class SupabaseService {
       const all = [...pending, ...stuck];
       const unique = Array.from(new Map(all.map(u => [u.id, u])).values());
       
+      console.log(`📦 Returning ${unique.length} uploads to process`);
+      
       return unique.slice(0, 10); // Limit to 10 total
     } catch (error) {
-      console.error('Exception fetching pending uploads:', error);
+      console.error('❌ Exception fetching pending uploads:', error);
       return [];
     }
   }

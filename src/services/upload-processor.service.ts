@@ -315,15 +315,20 @@ export class UploadProcessorService {
     console.log('🔍 Checking for pending uploads...');
 
     const pendingUploads = await this.supabaseService.getPendingUploads();
-    console.log(`📋 Found ${pendingUploads.length} pending uploads`);
+    console.log(`📋 Found ${pendingUploads.length} pending uploads to process`);
+
+    if (pendingUploads.length === 0) {
+      return;
+    }
 
     for (const upload of pendingUploads) {
       try {
+        console.log(`🔄 Processing upload: ${upload.id} - ${upload.title?.substring(0, 50)}`);
         await this.processUpload(upload.id);
         // Add small delay between uploads to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (error: any) {
-        console.error(`Failed to process upload ${upload.id}:`, error);
+        console.error(`❌ Failed to process upload ${upload.id}:`, error.message);
         // Continue with next upload
       }
     }
