@@ -211,6 +211,7 @@ export class SupabaseService {
 
   /**
    * Get pending uploads that are ready to process
+   * Also includes "processing" uploads that are stuck (more than 10 minutes)
    */
   async getPendingUploads(): Promise<any[]> {
     try {
@@ -219,22 +220,43 @@ export class SupabaseService {
         return [];
       }
 
-      const now = new Date().toISOString();
+      const now = new Date();
+      const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000).toISOString();
+      const nowISO = now.toISOString();
 
-      const { data, error } = await supabase
+      // Get pending uploads that are ready (not scheduled or scheduled time has passed)
+      const { data: pendingData, error: pendingError } = await supabase
         .from('youtube_uploads')
         .select('*')
         .eq('status', 'pending')
-        .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
+        .or(`scheduled_at.is.null,scheduled_at.lte.${nowISO}`)
         .order('created_at', { ascending: true })
-        .limit(10); // Process 10 at a time
+        .limit(10);
 
-      if (error) {
-        console.error('Error fetching pending uploads:', error);
-        return [];
+      // Get stuck processing uploads (processing for more than 10 minutes)
+      const { data: stuckData, error: stuckError } = await supabase
+        .from('youtube_uploads')
+        .select('*')
+        .eq('status', 'processing')
+        .lt('updated_at', tenMinutesAgo)
+        .order('updated_at', { ascending: true })
+        .limit(5);
+
+      if (pendingError) {
+        console.error('Error fetching pending uploads:', pendingError);
+      }
+      if (stuckError) {
+        console.error('Error fetching stuck uploads:', stuckError);
       }
 
-      return data || [];
+      const pending = pendingData || [];
+      const stuck = stuckData || [];
+      
+      // Combine and deduplicate by ID
+      const all = [...pending, ...stuck];
+      const unique = Array.from(new Map(all.map(u => [u.id, u])).values());
+      
+      return unique.slice(0, 10); // Limit to 10 total
     } catch (error) {
       console.error('Exception fetching pending uploads:', error);
       return [];

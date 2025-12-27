@@ -32,10 +32,39 @@ export class UploadProcessorService {
     }
 
     // Check if already processed
-    if (upload.status === 'uploaded' || upload.status === 'processing') {
-      console.log(`⏭️ Upload ${uploadId} already processed or processing`);
+    if (upload.status === 'uploaded') {
+      console.log(`⏭️ Upload ${uploadId} already uploaded`);
       return;
     }
+
+    // Check if scheduled upload is ready
+    if (upload.scheduled_at) {
+      const scheduledDate = new Date(upload.scheduled_at);
+      const now = new Date();
+      if (scheduledDate > now) {
+        console.log(`⏭️ Upload ${uploadId} scheduled for ${scheduledDate.toISOString()}, not ready yet`);
+        return;
+      }
+    }
+
+    // Check if already processing - but allow retry if stuck for more than 10 minutes
+    if (upload.status === 'processing') {
+      const updatedAt = upload.updated_at ? new Date(upload.updated_at) : new Date(upload.created_at);
+      const now = new Date();
+      const minutesSinceUpdate = (now.getTime() - updatedAt.getTime()) / (1000 * 60);
+      
+      if (minutesSinceUpdate < 10) {
+        console.log(`⏭️ Upload ${uploadId} already processing (${Math.round(minutesSinceUpdate)} minutes ago)`);
+        return;
+      } else {
+        console.log(`⚠️ Upload ${uploadId} stuck in processing for ${Math.round(minutesSinceUpdate)} minutes, retrying...`);
+      }
+    }
+
+    // Mark as processing to prevent duplicate processing
+    await this.supabaseService.updateYouTubeUpload(uploadId, {
+      status: 'processing',
+    });
 
     // Update status to processing
     await this.supabaseService.updateYouTubeUpload(uploadId, {

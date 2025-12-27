@@ -210,5 +210,29 @@ app.listen(PORT, () => {
   } else {
     console.log('✅ All critical environment variables are set');
   }
+
+  // Start background worker to process pending uploads
+  // This ensures uploads are processed even if the initial request fails
+  console.log('🔄 Starting background upload processor worker...');
+  
+  const startUploadWorker = async () => {
+    try {
+      const { UploadProcessorService } = await import('./services/upload-processor.service.js');
+      const processor = new UploadProcessorService();
+      await processor.processPendingUploads();
+    } catch (error: any) {
+      console.error('❌ Background worker error:', error.message);
+    }
+  };
+
+  // Process immediately on startup
+  startUploadWorker();
+
+  // Then process every 30 seconds
+  setInterval(() => {
+    startUploadWorker();
+  }, 30000); // Check every 30 seconds
+
+  console.log('✅ Background upload processor worker started (checks every 30 seconds)');
 });
 

@@ -224,44 +224,24 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
 
     console.log('✅ YouTube upload record created:', uploadRecord.id);
 
-    // Queue upload for processing (if not scheduled)
+    // Queue upload for processing (background worker will pick it up)
+    // For immediate uploads, try to process right away, but worker will catch it if it fails
     if (!scheduledDate) {
-      // Process immediately in background (non-blocking)
-      // Use Promise.resolve().then() instead of setImmediate for better Vercel compatibility
-      console.log(`🚀 Starting background processing for upload: ${uploadRecord.id}`);
-      
-      // Start processing without blocking the response
+      // Try to process immediately in background (non-blocking)
       Promise.resolve().then(async () => {
         try {
-          console.log(`📦 Loading UploadProcessorService...`);
           const { UploadProcessorService } = await import('../services/upload-processor.service.js');
           const processor = new UploadProcessorService();
-          console.log(`▶️  Calling processUpload for: ${uploadRecord.id}`);
           await processor.processUpload(uploadRecord.id);
-          console.log(`✅ Background processing completed for: ${uploadRecord.id}`);
         } catch (error: any) {
-          console.error('❌ Background upload processing failed:', {
-            uploadId: uploadRecord.id,
-            error: error.message,
-            stack: error.stack,
-          });
-          
-          // Update status to failed
-          try {
-            const { SupabaseService } = await import('../services/supabase.service.js');
-            const supabaseService = new SupabaseService();
-            await supabaseService.updateYouTubeUpload(uploadRecord.id, {
-              status: 'failed',
-              error_message: error.message || 'Unknown error occurred',
-            });
-          } catch (updateError: any) {
-            console.error('❌ Failed to update upload status:', updateError);
-          }
+          // Error is logged in processUpload, worker will retry
+          console.error('❌ Immediate processing failed, worker will retry:', uploadRecord.id);
         }
-      }).catch((error) => {
-        console.error('❌ Promise chain error:', error);
+      }).catch(() => {
+        // Silently fail - worker will pick it up
       });
     }
+    // For scheduled uploads, the background worker will process them when ready
 
     res.json({
       success: true,
