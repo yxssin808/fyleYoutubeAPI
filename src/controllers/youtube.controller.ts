@@ -56,8 +56,13 @@ function validateFileFormat(fileFormat: string, plan: string): { allowed: boolea
   
   // Normalize format (remove bitrate, etc.)
   const normalizedFormat = fileFormat.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const isMp3 = normalizedFormat.includes('mp3');
-  const isWav = normalizedFormat.includes('wav');
+  
+  // Check MP3: Treat 'mpeg' as MP3 (common format from Dropbox imports)
+  // Also check for 'mp3' in the format string
+  const isMp3 = normalizedFormat.includes('mp3') || normalizedFormat.includes('mpeg');
+  
+  // Check WAV: format includes 'wav' or 'wave'
+  const isWav = normalizedFormat.includes('wav') || normalizedFormat.includes('wave');
 
   if (isMp3 && limits.allowedFormats.includes('mp3')) {
     return { allowed: true };
@@ -161,14 +166,37 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
 
     // Validate file format
     const fileFormat = file.format || file.type || '';
+    const fileName = file.name || '';
+    
+    // Debug log for format validation
+    console.log('🎵 Format validation:', {
+      fileName,
+      fileFormat,
+      plan,
+      limits: limits.allowedFormats,
+    });
+    
     const formatValidation = validateFileFormat(fileFormat, plan);
     if (!formatValidation.allowed) {
-      return res.status(403).json({
-        error: 'File format not allowed',
-        message: formatValidation.reason,
-        fileFormat,
-        allowedFormats: limits.allowedFormats,
-      });
+      // Also check file extension as fallback
+      const fileNameLower = fileName.toLowerCase();
+      const isMp3ByExtension = fileNameLower.endsWith('.mp3');
+      const isWavByExtension = fileNameLower.endsWith('.wav');
+      
+      // If format validation failed but extension matches, allow it
+      if (isMp3ByExtension && limits.allowedFormats.includes('mp3')) {
+        console.log('✅ Allowed by file extension (.mp3)');
+      } else if (isWavByExtension && limits.allowedFormats.includes('wav')) {
+        console.log('✅ Allowed by file extension (.wav)');
+      } else {
+        return res.status(403).json({
+          error: 'File format not allowed',
+          message: formatValidation.reason,
+          fileFormat,
+          fileName,
+          allowedFormats: limits.allowedFormats,
+        });
+      }
     }
 
     // Validate scheduled date if provided
