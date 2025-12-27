@@ -98,7 +98,6 @@ export class UploadProcessorService {
       
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
-          console.error('❌ Supabase query timeout after 60 seconds');
           reject(new Error('Supabase query timeout after 60 seconds'));
         }, 60000); // Increased from 30 to 60 seconds
       });
@@ -240,12 +239,17 @@ export class UploadProcessorService {
       const videoStream = createReadStream(videoPath);
       
       try {
+        // If scheduled, use YouTube's native scheduling (publishAt)
+        // This makes the video visible in YouTube Studio immediately with scheduled publish date
+        const publishAt = upload.scheduled_at ? new Date(upload.scheduled_at).toISOString() : undefined;
+        
         const { videoId, url } = await this.youtubeService.uploadVideo(videoStream, videoSize, {
           title: upload.title,
           description: upload.description || undefined,
           tags: upload.tags || undefined,
           thumbnailUrl: upload.thumbnail_url || undefined, // Still upload as custom thumbnail
           privacyStatus: (upload.privacy_status as 'public' | 'unlisted' | 'private') || 'public', // Default to public
+          publishAt, // YouTube will schedule the video if provided
         });
 
         // Update upload record with success and channel info

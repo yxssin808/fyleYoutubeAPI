@@ -10,6 +10,7 @@ export interface YouTubeUploadOptions {
   thumbnailUrl?: string;
   privacyStatus?: 'private' | 'unlisted' | 'public';
   categoryId?: string;
+  publishAt?: string; // ISO date string for scheduled publishing
 }
 
 export class YouTubeService {
@@ -63,6 +64,19 @@ export class YouTubeService {
     }
 
     try {
+      const statusBody: any = {
+        privacyStatus: options.privacyStatus || 'public',
+        selfDeclaredMadeForKids: false,
+        madeForKids: false, // Explicitly set to false to prevent Shorts classification
+      };
+
+      // Add publishAt if scheduled (YouTube will schedule the video)
+      if (options.publishAt) {
+        statusBody.publishAt = options.publishAt;
+        // When scheduling, set privacy to 'private' initially, YouTube will publish at scheduled time
+        statusBody.privacyStatus = 'private';
+      }
+
       const response = await this.youtube.videos.insert({
         part: ['snippet', 'status'],
         requestBody: {
@@ -72,11 +86,7 @@ export class YouTubeService {
             tags: options.tags?.slice(0, 500) || [], // YouTube limit
             categoryId: options.categoryId || '10', // Music category
           },
-          status: {
-            privacyStatus: options.privacyStatus || 'public',
-            selfDeclaredMadeForKids: false,
-            madeForKids: false, // Explicitly set to false to prevent Shorts classification
-          },
+          status: statusBody,
         },
         media: {
           body: videoStream,
@@ -86,22 +96,13 @@ export class YouTubeService {
       const videoId = response.data.id;
       const url = `https://www.youtube.com/watch?v=${videoId}`;
 
-      // Upload thumbnail if provided
+      // Upload thumbnail if provided (silently fail if channel not verified)
       if (options.thumbnailUrl && videoId) {
         try {
           await this.uploadThumbnail(videoId, options.thumbnailUrl);
-          console.log('✅ Thumbnail uploaded successfully');
         } catch (error: any) {
-          // Check if it's a permissions error (channel not verified)
-          if (error.status === 403 || error.message?.includes('permissions') || error.message?.includes('forbidden')) {
-            console.warn('⚠️ Thumbnail upload failed: Channel verification required');
-            console.warn('   YouTube requires channel verification to upload custom thumbnails.');
-            console.warn('   Video uploaded successfully, but thumbnail was not set.');
-            console.warn('   To enable thumbnails: Verify your YouTube channel at https://www.youtube.com/verify');
-          } else {
-            console.warn('⚠️ Failed to upload thumbnail (non-critical):', error.message || error);
-          }
-          // Continue - thumbnail upload failure is not critical
+          // Silently continue - thumbnail upload failure is not critical
+          // Video is uploaded successfully, thumbnail can be set manually in YouTube Studio
         }
       }
 
