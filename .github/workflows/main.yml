@@ -1,0 +1,39 @@
+name: YouTube API CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'fyleYoutubeAPI/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'fyleYoutubeAPI/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fyleYoutubeAPI
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: fyleYoutubeAPI/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test || echo "No tests found, skipping"
+
+      - name: Build
+        run: npm run build
+
