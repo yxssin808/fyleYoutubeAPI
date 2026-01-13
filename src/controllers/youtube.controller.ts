@@ -531,6 +531,13 @@ export const updateYouTubeUploadController = async (req: Request, res: Response)
     const supabaseService = new SupabaseService();
 
     // Verify upload belongs to user
+    if (!supabaseService.client) {
+      return res.status(500).json({
+        error: 'Database connection failed',
+        message: 'Unable to connect to database',
+      });
+    }
+
     const { data: upload, error: fetchError } = await supabaseService.client
       .from('youtube_uploads')
       .select('*')
@@ -601,10 +608,10 @@ export const updateYouTubeUploadController = async (req: Request, res: Response)
     if (upload.youtube_video_id && upload.status === 'uploaded') {
       try {
         const { YouTubeService } = await import('../services/youtube.service.js');
-        const { SupabaseService: SupabaseServiceForOAuth } = await import('../services/supabase.service.js');
+        const { OAuthService } = await import('../services/oauth.service.js');
         
-        const supabaseForOAuth = new SupabaseServiceForOAuth();
-        const oauthData = await supabaseForOAuth.getYouTubeOAuth(sanitizedUserId);
+        const oauthService = new OAuthService();
+        const oauthData = await oauthService.getUserTokens(sanitizedUserId);
         
         if (!oauthData || !oauthData.access_token) {
           throw new Error('YouTube OAuth not connected');
