@@ -38,10 +38,13 @@ export class OAuthService {
       const expiresAt = data.youtube_token_expires_at ? new Date(data.youtube_token_expires_at).getTime() : undefined;
       const refreshToken = data.youtube_refresh_token || undefined;
 
-      // Check if token is expired or will expire within 5 minutes
+      // Check if token is expired or will expire within 30 minutes
+      // Access tokens are valid for 1 hour (set by Google, cannot be changed)
+      // We refresh proactively 30 minutes before expiration to keep tokens active longer
+      // This ensures tokens remain valid throughout long upload processes
       const now = Date.now();
-      const fiveMinutes = 5 * 60 * 1000;
-      const isExpiredOrExpiringSoon = !expiresAt || (expiresAt - now) < fiveMinutes;
+      const thirtyMinutes = 30 * 60 * 1000; // 30 minutes before expiration
+      const isExpiredOrExpiringSoon = !expiresAt || (expiresAt - now) < thirtyMinutes;
 
       // If token is expired or expiring soon, and we have a refresh token, refresh it
       if (isExpiredOrExpiringSoon && refreshToken) {
@@ -59,8 +62,24 @@ export class OAuthService {
           return refreshedTokens;
         } catch (refreshError: any) {
           console.error('❌ Failed to refresh access token:', refreshError);
-          // If refresh fails, return the old token anyway (might still work)
-          // But log the error for debugging
+          // If refresh fails with invalid_grant or invalid_token, the refresh token is invalid
+          // Also check for common OAuth error codes and messages
+          const isInvalidToken = refreshError.message?.includes('invalid_grant') || 
+              refreshError.message?.includes('invalid_token') ||
+              refreshError.message?.includes('Token has been expired or revoked') ||
+              refreshError.message?.includes('token_expired') ||
+              refreshError.code === 401 ||
+              refreshError.code === 400 ||
+              (refreshError.response?.data?.error === 'invalid_grant') ||
+              (refreshError.response?.data?.error === 'invalid_token');
+              
+          if (isInvalidToken) {
+            // Clear invalid tokens from database
+            await this.saveUserTokens(userId, { access_token: '' });
+            throw new Error('YouTube account connection expired. Please reconnect your YouTube account in the settings.');
+          }
+          // For other errors, try with existing token but log warning
+          console.warn('⚠️ Token refresh failed, attempting with existing token');
         }
       }
 
@@ -79,6 +98,11 @@ export class OAuthService {
    * Refresh access token using refresh token
    */
   private async refreshAccessToken(refreshToken: string): Promise<OAuthTokens> {
+    // Validate environment variables
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REDIRECT_URI) {
+      throw new Error('OAuth2 credentials not configured. Missing GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, or GOOGLE_REDIRECT_URI');
+    }
+
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
@@ -89,22 +113,41 @@ export class OAuthService {
       refresh_token: refreshToken,
     });
 
-    const { credentials } = await oauth2Client.refreshAccessToken();
+    try {
+      const { credentials } = await oauth2Client.refreshAccessToken();
 
-    if (!credentials.access_token) {
-      throw new Error('No access token received from refresh');
+      if (!credentials.access_token) {
+        throw new Error('No access token received from refresh');
+      }
+
+      // Calculate expiration time (default: 1 hour from now)
+      const expiresAt = credentials.expiry_date
+        ? new Date(credentials.expiry_date).getTime()
+        : Date.now() + 3600 * 1000;
+
+      return {
+        access_token: credentials.access_token,
+        refresh_token: credentials.refresh_token || refreshToken, // Keep old refresh token if new one not provided
+        expires_at: expiresAt,
+      };
+    } catch (error: any) {
+      // Provide more specific error messages
+      // Check for all common OAuth error codes and messages
+      const isInvalidToken = error.message?.includes('invalid_grant') || 
+          error.message?.includes('invalid_token') ||
+          error.message?.includes('Token has been expired or revoked') ||
+          error.message?.includes('token_expired') ||
+          error.code === 400 ||
+          error.code === 401 ||
+          (error.response?.data?.error === 'invalid_grant') ||
+          (error.response?.data?.error === 'invalid_token');
+          
+      if (isInvalidToken) {
+        throw new Error('YouTube account connection expired. Please reconnect your YouTube account in the settings.');
+      }
+      // Re-throw with original message for other errors
+      throw error;
     }
-
-    // Calculate expiration time (default: 1 hour from now)
-    const expiresAt = credentials.expiry_date
-      ? new Date(credentials.expiry_date).getTime()
-      : Date.now() + 3600 * 1000;
-
-    return {
-      access_token: credentials.access_token,
-      refresh_token: credentials.refresh_token || refreshToken, // Keep old refresh token if new one not provided
-      expires_at: expiresAt,
-    };
   }
 
   /**
@@ -171,8 +214,13 @@ export class OAuthService {
   /**
    * Check if user has valid OAuth tokens
    * Returns true if user has tokens (access token or refresh token)
-   * Refresh tokens are valid for a long time (typically 6 months), so if we have a refresh token,
-   * we can always get a new access token
+   * 
+   * Token Duration (set by Google, cannot be changed):
+   * - Access tokens: 1 hour (3600 seconds)
+   * - Refresh tokens: 6 months (can expire if user revokes access or changes password)
+   * 
+   * If we have a refresh token, we can always get a new access token,
+   * so the connection is considered valid as long as refresh token exists.
    */
   async hasValidTokens(userId: string): Promise<boolean> {
     const tokens = await this.getUserTokens(userId);

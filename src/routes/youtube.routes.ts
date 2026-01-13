@@ -7,6 +7,7 @@ import {
   getYouTubeLimitsController,
   deleteYouTubeUploadController,
   archiveYouTubeUploadController,
+  updateYouTubeUploadController,
   processPendingUploadsController,
 } from '../controllers/youtube.controller.js';
 import {
@@ -78,6 +79,9 @@ router.get('/limits', readOnlyLimiter, getYouTubeLimitsController);
 // PUT /api/youtube/upload/:id/archive - Archive or unarchive a YouTube upload
 // MUST come before /upload/:id to avoid route matching conflicts
 router.put('/upload/:id/archive', templateWriteLimiter, archiveYouTubeUploadController);
+
+// PUT /api/youtube/upload/:id - Update a YouTube upload
+router.put('/upload/:id', templateWriteLimiter, updateYouTubeUploadController);
 
 // DELETE /api/youtube/upload/:id - Delete a YouTube upload
 router.delete('/upload/:id', youtubeLimiter, deleteYouTubeUploadController);

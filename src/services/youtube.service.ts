@@ -33,15 +33,31 @@ export class YouTubeService {
     });
 
     // Always try to refresh token if we have a refresh token
-    // This ensures we have a fresh access token
+    // This ensures we have a fresh access token before uploading
+    // Access tokens expire after 1 hour (set by Google, cannot be changed)
     if (refreshToken) {
       try {
         const { credentials } = await oauth2Client.refreshAccessToken();
         oauth2Client.setCredentials(credentials);
         console.log('✅ Access token refreshed successfully');
       } catch (error: any) {
-        console.error('⚠️ Failed to refresh access token:', error.message || error);
-        // Continue with existing token - it might still be valid
+        console.error('❌ Failed to refresh access token:', error.message || error);
+        // If refresh fails, the refresh token might be invalid/revoked
+        // Check for common OAuth error codes and messages
+        const isInvalidToken = error.message?.includes('invalid_grant') || 
+            error.message?.includes('invalid_token') ||
+            error.message?.includes('Token has been expired or revoked') ||
+            error.message?.includes('token_expired') ||
+            error.code === 401 ||
+            error.code === 400 ||
+            (error.response?.data?.error === 'invalid_grant') ||
+            (error.response?.data?.error === 'invalid_token');
+            
+        if (isInvalidToken) {
+          throw new Error('YouTube account connection expired. Please reconnect your YouTube account in the settings.');
+        }
+        // For other errors, try with existing token but log warning
+        console.warn('⚠️ Token refresh failed, attempting with existing token');
       }
     }
 
@@ -189,6 +205,69 @@ export class YouTubeService {
     } catch (error: any) {
       console.error('YouTube get video error:', error);
       throw new Error(error.message || 'Failed to get video details');
+    }
+  }
+
+  /**
+   * Update video metadata on YouTube
+   */
+  async updateVideo(
+    videoId: string,
+    options: {
+      title?: string;
+      description?: string;
+      tags?: string[];
+      privacyStatus?: 'private' | 'unlisted' | 'public';
+    }
+  ): Promise<void> {
+    if (!this.youtube) {
+      throw new Error('YouTube client not initialized');
+    }
+
+    try {
+      // First, get current video details
+      const currentVideo = await this.getVideoDetails(videoId);
+      if (!currentVideo) {
+        throw new Error('Video not found');
+      }
+
+      // Prepare update payload
+      const snippet: any = {
+        ...currentVideo.snippet,
+      };
+
+      if (options.title !== undefined) {
+        snippet.title = options.title.substring(0, 100); // YouTube limit
+      }
+      if (options.description !== undefined) {
+        snippet.description = options.description.substring(0, 5000); // YouTube limit
+      }
+      if (options.tags !== undefined) {
+        snippet.tags = options.tags.slice(0, 500); // YouTube limit
+      }
+
+      const status: any = {
+        ...currentVideo.status,
+      };
+
+      if (options.privacyStatus !== undefined) {
+        status.privacyStatus = options.privacyStatus;
+      }
+
+      // Update video
+      await this.youtube.videos.update({
+        part: ['snippet', 'status'],
+        requestBody: {
+          id: videoId,
+          snippet,
+          status,
+        },
+      });
+
+      console.log(`✅ Successfully updated YouTube video: ${videoId}`);
+    } catch (error: any) {
+      console.error('YouTube update video error:', error);
+      throw new Error(error.message || 'Failed to update video on YouTube');
     }
   }
 }

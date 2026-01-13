@@ -268,28 +268,51 @@ export class SupabaseService {
     try {
       const supabase = getSupabaseClient();
       if (!supabase) {
+        console.error('❌ Supabase client not available');
         return [];
       }
 
+      // Build query - always select all fields
       let query = supabase
         .from('youtube_uploads')
         .select('*')
         .eq('user_id', userId);
 
+      // Only filter out archived if includeArchived is false
       if (!includeArchived) {
+        // Show non-archived uploads (archived = false OR archived IS NULL)
         query = query.or('archived.is.null,archived.eq.false');
       }
+      // If includeArchived is true, don't add any filter - show ALL uploads
+
+      console.log(`📥 Fetching YouTube uploads for user ${userId}, includeArchived: ${includeArchived}`);
+      console.log(`📥 Query will ${includeArchived ? 'include' : 'exclude'} archived uploads`);
 
       const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error fetching YouTube uploads:', error);
+        console.error('❌ Error fetching YouTube uploads:', error);
+        console.error('❌ Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
         return [];
       }
 
-      return data || [];
+      const uploads = data || [];
+      const archivedCount = uploads.filter((u: any) => u.archived === true).length;
+      const nonArchivedCount = uploads.filter((u: any) => u.archived !== true).length;
+      
+      console.log(`✅ Fetched ${uploads.length} uploads total:`);
+      console.log(`   - ${archivedCount} archived`);
+      console.log(`   - ${nonArchivedCount} non-archived`);
+      console.log(`   - includeArchived was: ${includeArchived}`);
+
+      return uploads;
     } catch (error) {
-      console.error('Exception fetching YouTube uploads:', error);
+      console.error('❌ Exception fetching YouTube uploads:', error);
       return [];
     }
   }

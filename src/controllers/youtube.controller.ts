@@ -135,6 +135,44 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
     // Initialize services
     const supabaseService = new SupabaseService();
 
+    // Validate YouTube account connection BEFORE creating upload
+    // This prevents creating uploads when the account is disconnected
+    try {
+      const { OAuthService } = await import('../services/oauth.service.js');
+      const oauthService = new OAuthService();
+      
+      // Check if user has valid tokens
+      const hasValidTokens = await oauthService.hasValidTokens(sanitizedUserId);
+      if (!hasValidTokens) {
+        return res.status(403).json({
+          error: 'YouTube account not connected',
+          message: 'Please connect your YouTube account before uploading. Go to YouTube settings and connect your account.',
+        });
+      }
+      
+      // Try to get and refresh tokens to verify they're still valid
+      const tokens = await oauthService.getUserTokens(sanitizedUserId);
+      if (!tokens || !tokens.access_token) {
+        return res.status(403).json({
+          error: 'YouTube account connection expired',
+          message: 'Your YouTube account connection has expired. Please reconnect your YouTube account in the settings.',
+        });
+      }
+    } catch (authError: any) {
+      // If token refresh failed with invalid token error, user needs to reconnect
+      if (authError.message?.includes('expired') || 
+          authError.message?.includes('reconnect') ||
+          authError.message?.includes('invalid') ||
+          authError.message?.includes('expired')) {
+        return res.status(403).json({
+          error: 'YouTube account connection expired',
+          message: 'Your YouTube account connection has expired. Please reconnect your YouTube account in the settings.',
+        });
+      }
+      // For other errors, log and continue (might be temporary network issue)
+      console.warn('⚠️ Token validation warning:', authError.message);
+    }
+
     // Get user plan
     const plan = await supabaseService.getUserPlan(sanitizedUserId);
     const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
@@ -291,6 +329,9 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
 export const getYouTubeUploadsController = async (req: Request, res: Response) => {
   try {
     const userId = req.query.userId as string;
+    const includeArchived = req.query.includeArchived === 'true';
+
+    console.log(`🔍 getYouTubeUploadsController called: userId=${userId}, includeArchived=${includeArchived}`);
 
     if (!userId) {
       return res.status(400).json({
@@ -302,7 +343,9 @@ export const getYouTubeUploadsController = async (req: Request, res: Response) =
     const sanitizedUserId = sanitizeString(userId);
     const supabaseService = new SupabaseService();
 
-    const uploads = await supabaseService.getYouTubeUploads(sanitizedUserId);
+    const uploads = await supabaseService.getYouTubeUploads(sanitizedUserId, includeArchived);
+
+    console.log(`✅ Returning ${uploads.length} uploads to client`);
 
     res.json({
       success: true,
@@ -462,6 +505,138 @@ export const archiveYouTubeUploadController = async (req: Request, res: Response
     console.error('❌ Error archiving YouTube upload:', error);
     res.status(500).json({
       error: 'Failed to archive YouTube upload',
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * PUT /api/youtube/upload/:id
+ * Update a YouTube upload and video metadata
+ */
+export const updateYouTubeUploadController = async (req: Request, res: Response) => {
+  try {
+    const uploadId = req.params.id;
+    const { userId, title, description, tags, privacyStatus } = req.body;
+
+    if (!uploadId || !userId) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'uploadId and userId are required',
+      });
+    }
+
+    const sanitizedUserId = sanitizeString(userId);
+    const sanitizedUploadId = sanitizeString(uploadId);
+    const supabaseService = new SupabaseService();
+
+    // Verify upload belongs to user
+    const { data: upload, error: fetchError } = await supabaseService.client
+      .from('youtube_uploads')
+      .select('*')
+      .eq('id', sanitizedUploadId)
+      .eq('user_id', sanitizedUserId)
+      .single();
+
+    if (fetchError || !upload) {
+      return res.status(404).json({
+        error: 'Upload not found',
+        message: 'Upload does not exist or you do not have permission to modify it',
+      });
+    }
+
+    // Validate title if provided
+    let sanitizedTitle = upload.title;
+    if (title !== undefined) {
+      sanitizedTitle = sanitizeString(title).trim();
+      if (!sanitizedTitle || sanitizedTitle.length === 0) {
+        return res.status(400).json({
+          error: 'Invalid title',
+          message: 'Title must be a non-empty string',
+        });
+      }
+      if (sanitizedTitle.length > 100) {
+        return res.status(400).json({
+          error: 'Title too long',
+          message: 'Title must be 100 characters or less',
+        });
+      }
+    }
+
+    // Sanitize description if provided
+    const sanitizedDescription = description !== undefined
+      ? (description ? sanitizeString(description).trim() : null)
+      : upload.description;
+
+    // Sanitize tags if provided
+    const sanitizedTags = tags !== undefined
+      ? (tags && Array.isArray(tags)
+          ? tags.map((tag: string) => sanitizeString(tag).trim()).filter((tag: string) => tag.length > 0)
+          : [])
+      : upload.tags;
+
+    // Validate privacy status if provided
+    const validPrivacyStatuses = ['public', 'unlisted', 'private'];
+    const sanitizedPrivacyStatus = privacyStatus && validPrivacyStatuses.includes(privacyStatus)
+      ? privacyStatus
+      : upload.privacy_status;
+
+    // Update in database
+    const updateData: any = {};
+    if (title !== undefined) updateData.title = sanitizedTitle;
+    if (description !== undefined) updateData.description = sanitizedDescription;
+    if (tags !== undefined) updateData.tags = sanitizedTags.length > 0 ? sanitizedTags : null;
+    if (privacyStatus !== undefined) updateData.privacy_status = sanitizedPrivacyStatus;
+
+    const { data: updatedUpload, error: updateError } = await supabaseService.updateYouTubeUpload(
+      sanitizedUploadId,
+      updateData
+    );
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // If video is already uploaded to YouTube, update it there too
+    if (upload.youtube_video_id && upload.status === 'uploaded') {
+      try {
+        const { YouTubeService } = await import('../services/youtube.service.js');
+        const { SupabaseService: SupabaseServiceForOAuth } = await import('../services/supabase.service.js');
+        
+        const supabaseForOAuth = new SupabaseServiceForOAuth();
+        const oauthData = await supabaseForOAuth.getYouTubeOAuth(sanitizedUserId);
+        
+        if (!oauthData || !oauthData.access_token) {
+          throw new Error('YouTube OAuth not connected');
+        }
+
+        const youtubeService = new YouTubeService();
+        await youtubeService.initialize(oauthData.access_token, oauthData.refresh_token || undefined);
+
+        await youtubeService.updateVideo(upload.youtube_video_id, {
+          title: sanitizedTitle,
+          description: sanitizedDescription || undefined,
+          tags: sanitizedTags.length > 0 ? sanitizedTags : undefined,
+          privacyStatus: sanitizedPrivacyStatus as 'public' | 'unlisted' | 'private',
+        });
+
+        console.log(`✅ Successfully updated YouTube video: ${upload.youtube_video_id}`);
+      } catch (error: any) {
+        console.error('❌ Error updating YouTube video:', error);
+        // Don't fail the request if YouTube update fails - database is already updated
+        // Just log the error
+      }
+    }
+
+    res.json({
+      success: true,
+      upload: updatedUpload,
+      message: 'Upload updated successfully',
+    });
+  } catch (error: any) {
+    console.error('❌ Error updating YouTube upload:', error);
+    res.status(500).json({
+      error: 'Failed to update YouTube upload',
       message: error.message,
     });
   }

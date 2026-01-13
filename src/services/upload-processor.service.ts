@@ -62,9 +62,22 @@ export class UploadProcessorService {
 
     try {
       // Get user's OAuth tokens
-      const tokens = await this.oauthService.getUserTokens(upload.user_id);
-      if (!tokens) {
-        throw new Error('User has not connected YouTube account. Please connect your YouTube account first.');
+      let tokens;
+      try {
+        tokens = await this.oauthService.getUserTokens(upload.user_id);
+        if (!tokens || !tokens.access_token) {
+          throw new Error('YouTube account connection expired. Please reconnect your YouTube account in the settings.');
+        }
+      } catch (tokenError: any) {
+        // If token error indicates expired/invalid token, provide clear message
+        if (tokenError.message?.includes('expired') || 
+            tokenError.message?.includes('reconnect') ||
+            tokenError.message?.includes('invalid') ||
+            tokenError.message?.includes('expired')) {
+          throw new Error('YouTube account connection expired. Please reconnect your YouTube account in the settings.');
+        }
+        // Re-throw original error
+        throw tokenError;
       }
 
       // Get YouTube channel info from profiles
@@ -283,17 +296,30 @@ export class UploadProcessorService {
         // Cleanup video file after upload
         await this.videoProcessingService.cleanupVideo(videoPath);
       }
-    } catch (error: any) {
-      console.error(`❌ Upload failed: ${error.message}`);
+      } catch (error: any) {
+        console.error(`❌ Upload failed: ${error.message}`);
 
-      // Update upload record with error
-      await this.supabaseService.updateYouTubeUpload(uploadId, {
-        status: 'failed',
-        error_message: error.message || 'Unknown error occurred',
-      });
+        // Check if error is related to OAuth/token issues
+        const isTokenError = error.message?.includes('expired') || 
+            error.message?.includes('reconnect') ||
+            error.message?.includes('invalid_grant') ||
+            error.message?.includes('invalid_token') ||
+            error.message?.includes('OAuth credentials') ||
+            error.message?.includes('connection expired') ||
+            error.code === 401;
 
-      throw error;
-    }
+        // Update upload record with error
+        const errorMessage = isTokenError 
+          ? 'YouTube account connection expired. Please reconnect your YouTube account in the settings.'
+          : (error.message || 'Unknown error occurred');
+          
+        await this.supabaseService.updateYouTubeUpload(uploadId, {
+          status: 'failed',
+          error_message: errorMessage,
+        });
+
+        throw error;
+      }
   }
 
 
