@@ -85,7 +85,7 @@ function validateFileFormat(fileFormat: string, plan: string): { allowed: boolea
 export const createYouTubeUploadController = async (req: Request, res: Response) => {
   try {
     const {
-      userId,
+      userId: userIdFromBody,
       fileId,
       title,
       description,
@@ -94,6 +94,9 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
       scheduledAt,
       privacyStatus,
     }: YouTubeUploadRequest = req.body;
+    
+    // Derived from Supabase JWT (middleware). Fallback kept for backwards compatibility.
+    const userId = (req as any).userId as string | undefined ?? userIdFromBody;
 
     console.log('🎬 YouTube upload request:', {
       userId,
@@ -328,7 +331,7 @@ export const createYouTubeUploadController = async (req: Request, res: Response)
  */
 export const getYouTubeUploadsController = async (req: Request, res: Response) => {
   try {
-    const userId = req.query.userId as string;
+    const userId = (req as any).userId as string | undefined;
     const includeArchived = req.query.includeArchived === 'true';
 
     console.log(`🔍 getYouTubeUploadsController called: userId=${userId}, includeArchived=${includeArchived}`);
@@ -366,7 +369,7 @@ export const getYouTubeUploadsController = async (req: Request, res: Response) =
  */
 export const getYouTubeLimitsController = async (req: Request, res: Response) => {
   try {
-    const userId = req.query.userId as string;
+    const userId = (req as any).userId as string | undefined;
 
     if (!userId) {
       return res.status(400).json({
@@ -413,7 +416,7 @@ export const getYouTubeLimitsController = async (req: Request, res: Response) =>
 export const deleteYouTubeUploadController = async (req: Request, res: Response) => {
   try {
     const uploadId = req.params.id;
-    const userId = req.body.userId || req.query.userId as string;
+    const userId = (req as any).userId as string | undefined;
 
     if (!uploadId || !userId) {
       return res.status(400).json({
@@ -450,7 +453,8 @@ export const deleteYouTubeUploadController = async (req: Request, res: Response)
 export const archiveYouTubeUploadController = async (req: Request, res: Response) => {
   try {
     const uploadId = req.params.id;
-    const { userId, archived } = req.body;
+    const { archived } = req.body;
+    const userId = (req as any).userId as string | undefined;
 
     if (!uploadId || !userId || typeof archived !== 'boolean') {
       return res.status(400).json({
@@ -517,7 +521,8 @@ export const archiveYouTubeUploadController = async (req: Request, res: Response
 export const updateYouTubeUploadController = async (req: Request, res: Response) => {
   try {
     const uploadId = req.params.id;
-    const { userId, title, description, tags, privacyStatus } = req.body;
+    const { title, description, tags, privacyStatus } = req.body;
+    const userId = (req as any).userId as string | undefined;
 
     if (!uploadId || !userId) {
       return res.status(400).json({

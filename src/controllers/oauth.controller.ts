@@ -147,12 +147,13 @@ export const authorizeController = async (req: Request, res: Response) => {
  */
 export const callbackController = async (req: Request, res: Response) => {
   try {
-    const { code, userId, redirect_uri } = req.body;
+    const { code, userId: userIdFromBody, redirect_uri } = req.body;
+    const userId = (req as any).userId as string | undefined ?? userIdFromBody;
 
     if (!code || !userId || !redirect_uri) {
       return res.status(400).json({
         error: 'Missing required fields',
-        message: 'code, userId, and redirect_uri are required',
+        message: 'code, redirect_uri (and authenticated user) are required',
       });
     }
 
@@ -254,13 +255,13 @@ export const callbackController = async (req: Request, res: Response) => {
  * Check if user has connected YouTube account
  */
 export const statusController = async (req: Request, res: Response) => {
-  const userId = req.query.userId as string;
+  const userId = (req as any).userId as string | undefined;
 
   try {
     if (!userId) {
       return res.status(400).json({
         error: 'Missing userId',
-        message: 'userId query parameter is required',
+        message: 'Unable to resolve user from session',
       });
     }
 
@@ -311,12 +312,13 @@ export const statusController = async (req: Request, res: Response) => {
  */
 export const disconnectController = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body;
+    const { userId: userIdFromBody } = req.body;
+    const userId = (req as any).userId as string | undefined ?? userIdFromBody;
 
     if (!userId) {
       return res.status(400).json({
         error: 'Missing userId',
-        message: 'userId is required',
+        message: 'Unable to resolve user from session',
       });
     }
 

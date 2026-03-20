@@ -55,10 +55,38 @@ export class UploadProcessorService {
       }
     }
 
-    // Mark as processing to prevent duplicate processing
-    await this.supabaseService.updateYouTubeUpload(uploadId, {
-      status: 'processing',
-    });
+    // Claim the upload for this worker (prevents duplicates across multiple instances).
+    // We only transition `pending -> processing` or `processing(stuck) -> processing`.
+    const supabaseClient = this.supabaseService.client;
+    if (!supabaseClient) {
+      throw new Error('Supabase client not initialized');
+    }
+
+    const nowIso = new Date().toISOString();
+    const staleIso = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 minutes
+
+    const claimResult =
+      upload.status === 'pending'
+        ? await supabaseClient
+            .from('youtube_uploads')
+            .update({ status: 'processing', updated_at: nowIso })
+            .eq('id', uploadId)
+            .eq('status', 'pending')
+            .select('id')
+            .maybeSingle()
+        : await supabaseClient
+            .from('youtube_uploads')
+            .update({ status: 'processing', updated_at: nowIso })
+            .eq('id', uploadId)
+            .eq('status', 'processing')
+            .lt('updated_at', staleIso)
+            .select('id')
+            .maybeSingle();
+
+    if (claimResult?.data?.id !== uploadId) {
+      console.log(`⏭️ Upload ${uploadId} was already claimed by another worker`);
+      return;
+    }
 
     try {
       // Get user's OAuth tokens

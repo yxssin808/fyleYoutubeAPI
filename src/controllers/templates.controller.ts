@@ -18,12 +18,12 @@ function sanitizeString(input: string): string {
  */
 export const getTemplatesController = async (req: Request, res: Response) => {
   try {
-    const userId = req.query.userId as string;
+    const userId = (req as any).userId as string | undefined;
 
     if (!userId) {
       return res.status(400).json({
         error: 'Missing userId',
-        message: 'userId query parameter is required',
+        message: 'Unable to resolve user from session',
       });
     }
 
@@ -72,12 +72,13 @@ export const getTemplatesController = async (req: Request, res: Response) => {
  */
 export const createTemplateController = async (req: Request, res: Response) => {
   try {
-    const { userId, name, description } = req.body;
+    const { userId: userIdFromBody, name, description } = req.body;
+    const userId = (req as any).userId as string | undefined ?? userIdFromBody;
 
     if (!userId || !name || !description) {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['userId', 'name', 'description'],
+        required: ['name', 'description'],
       });
     }
 
@@ -148,7 +149,8 @@ export const createTemplateController = async (req: Request, res: Response) => {
 export const updateTemplateController = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { userId, name, description, is_default } = req.body;
+    const { userId: userIdFromBody, name, description, is_default } = req.body;
+    const userId = (req as any).userId as string | undefined ?? userIdFromBody;
 
     console.log('📝 Update template request:', { 
       id, 
@@ -163,7 +165,7 @@ export const updateTemplateController = async (req: Request, res: Response) => {
     if (!userId || !id) {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['userId', 'id'],
+        required: ['id'],
         received: { userId: !!userId, id: !!id },
       });
     }
@@ -281,12 +283,12 @@ export const updateTemplateController = async (req: Request, res: Response) => {
 export const deleteTemplateController = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = req.query.userId as string;
+    const userId = (req as any).userId as string | undefined;
 
     if (!userId || !id) {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['userId', 'id'],
+        required: ['id'],
       });
     }
 

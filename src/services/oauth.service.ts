@@ -1,6 +1,7 @@
 // OAuth2 service for Google/YouTube authentication
 import { getSupabaseClient } from '../lib/supabaseClient.js';
 import { google } from 'googleapis';
+import crypto from 'crypto';
 
 export interface OAuthTokens {
   access_token: string;
@@ -9,6 +10,51 @@ export interface OAuthTokens {
 }
 
 export class OAuthService {
+  private getTokensEncryptionKey(): Buffer | null {
+    const key = process.env.YOUTUBE_TOKENS_ENCRYPTION_KEY;
+    if (!key || key.trim() === '') return null;
+    // Derive a fixed 32-byte key from the provided secret.
+    return crypto.createHash('sha256').update(key).digest();
+  }
+
+  private encryptToken(plain: string): string {
+    const key = this.getTokensEncryptionKey();
+    if (!key) return plain;
+
+    const iv = crypto.randomBytes(12); // recommended size for GCM
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+
+    // Store: prefix + base64(iv|tag|ciphertext)
+    return `enc:${Buffer.concat([iv, tag, ciphertext]).toString('base64')}`;
+  }
+
+  private decryptToken(value: string): string {
+    const key = this.getTokensEncryptionKey();
+    if (!key) {
+      // If tokens were encrypted but no key is configured, we cannot decrypt them.
+      // Returning empty string makes token validation fail safely.
+      if (value.startsWith('enc:')) return '';
+      return value;
+    }
+    if (!value.startsWith('enc:')) return value; // backwards compatible for existing plaintext tokens
+
+    const payload = value.slice('enc:'.length);
+    const raw = Buffer.from(payload, 'base64');
+
+    // iv(12) | tag(16) | ciphertext(rest)
+    const iv = raw.subarray(0, 12);
+    const tag = raw.subarray(12, 28);
+    const ciphertext = raw.subarray(28);
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+
+    const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+    return plain;
+  }
+
   /**
    * Get user's OAuth tokens from database and refresh if needed
    */
@@ -36,7 +82,9 @@ export class OAuthService {
       }
 
       const expiresAt = data.youtube_token_expires_at ? new Date(data.youtube_token_expires_at).getTime() : undefined;
-      const refreshToken = data.youtube_refresh_token || undefined;
+      const refreshToken = data.youtube_refresh_token
+        ? this.decryptToken(data.youtube_refresh_token)
+        : undefined;
 
       // Check if token is expired or will expire within 30 minutes
       // Access tokens are valid for 1 hour (set by Google, cannot be changed)
@@ -84,7 +132,7 @@ export class OAuthService {
       }
 
       return {
-        access_token: data.youtube_access_token,
+        access_token: this.decryptToken(data.youtube_access_token),
         refresh_token: refreshToken,
         expires_at: expiresAt,
       };
@@ -186,8 +234,8 @@ export class OAuthService {
       }
 
       const updateData: any = {
-        youtube_access_token: tokens.access_token,
-        youtube_refresh_token: tokens.refresh_token || null,
+        youtube_access_token: tokens.access_token ? this.encryptToken(tokens.access_token) : tokens.access_token,
+        youtube_refresh_token: tokens.refresh_token ? this.encryptToken(tokens.refresh_token) : null,
         youtube_token_expires_at: expiresAt,
       };
 
