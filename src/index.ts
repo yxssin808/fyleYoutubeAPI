@@ -108,9 +108,6 @@ const healthLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Apply general rate limiting to all routes
-app.use(generalLimiter);
-
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:3000',
@@ -120,18 +117,26 @@ const allowedOrigins = [
   'https://www.fyle-cloud.com',
 ].filter(Boolean) as string[];
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, origin || true);
-      }
-      console.warn(`⚠️ CORS: Origin ${origin} not explicitly allowed. Allowing for now.`);
-      return callback(null, origin);
-    },
-    credentials: true,
-  }),
-);
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, origin || true);
+    }
+    console.warn(`⚠️ CORS: Origin ${origin} not explicitly allowed. Allowing for now.`);
+    return callback(null, origin);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 204,
+};
+
+// CORS must run before limiters/routes so preflight receives CORS headers.
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// Apply general rate limiting to API routes (avoid affecting preflight universally)
+app.use('/api', generalLimiter);
 
 app.use(express.json());
 
