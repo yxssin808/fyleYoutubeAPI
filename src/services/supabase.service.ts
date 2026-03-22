@@ -2,6 +2,10 @@
 import { getSupabaseClient } from '../lib/supabaseClient.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+/** Throttle global queue snapshot logs (worker runs every 30s). */
+let lastYoutubeQueueSnapshotMs = 0;
+const YOUTUBE_QUEUE_SNAPSHOT_MIN_MS = 2 * 60 * 1000;
+
 export class SupabaseService {
   /**
    * Get Supabase client
@@ -360,6 +364,45 @@ export class SupabaseService {
   }
 
   /**
+   * Same as updateYouTubeUpload but retries on transient network/Supabase errors.
+   * Critical after YouTube API already accepted the video — avoids rows stuck on `processing`.
+   */
+  async updateYouTubeUploadWithRetry(
+    uploadId: string,
+    updates: {
+      status?: string;
+      youtube_video_id?: string;
+      youtube_channel_id?: string | null;
+      youtube_channel_title?: string | null;
+      error_message?: string;
+      archived?: boolean;
+    },
+    options?: { retries?: number; baseDelayMs?: number }
+  ): Promise<any> {
+    const retries = Math.max(1, options?.retries ?? 5);
+    const baseDelayMs = options?.baseDelayMs ?? 400;
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        return await this.updateYouTubeUpload(uploadId, updates);
+      } catch (err) {
+        lastError = err;
+        console.warn(
+          `⚠️ updateYouTubeUpload attempt ${attempt + 1}/${retries} failed for ${uploadId}:`,
+          err instanceof Error ? err.message : err
+        );
+        if (attempt < retries - 1) {
+          const delay = baseDelayMs * (attempt + 1);
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
    * Get pending uploads that are ready to process
    * Also includes "processing" uploads that are stuck (more than 10 minutes)
    */
@@ -424,11 +467,46 @@ export class SupabaseService {
       const unique = Array.from(new Map(all.map(u => [u.id, u])).values());
       
       console.log(`📦 Returning ${unique.length} uploads to process`);
+
+      // When nothing is pending/stuck, log DB-wide status counts (throttled) so we can tell:
+      // - no rows at all → POST /upload may not be creating records (wrong project, errors, etc.)
+      // - many processing/failed → jobs exist but not in "pending" state
+      if (unique.length === 0) {
+        const t = Date.now();
+        if (t - lastYoutubeQueueSnapshotMs >= YOUTUBE_QUEUE_SNAPSHOT_MIN_MS) {
+          lastYoutubeQueueSnapshotMs = t;
+          await this.logYoutubeUploadQueueSnapshot(supabase);
+        }
+      }
       
       return unique.slice(0, 10); // Limit to 10 total
     } catch (error) {
       console.error('❌ Exception fetching pending uploads:', error);
       return [];
+    }
+  }
+
+  /**
+   * Debug: aggregate counts by status (all users). Throttled caller only.
+   */
+  private async logYoutubeUploadQueueSnapshot(supabase: SupabaseClient): Promise<void> {
+    try {
+      const statuses = ['pending', 'processing', 'uploaded', 'failed'] as const;
+      const parts: string[] = [];
+      for (const status of statuses) {
+        const { count, error } = await supabase
+          .from('youtube_uploads')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', status);
+        if (error) {
+          parts.push(`${status}=?`);
+        } else {
+          parts.push(`${status}=${count ?? 0}`);
+        }
+      }
+      console.log('📊 youtube_uploads queue snapshot (all users, throttled):', parts.join(', '));
+    } catch (e) {
+      console.warn('⚠️ logYoutubeUploadQueueSnapshot failed:', e);
     }
   }
 

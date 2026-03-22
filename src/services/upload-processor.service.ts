@@ -311,8 +311,9 @@ export class UploadProcessorService {
           publishAt, // YouTube will schedule the video if provided
         });
 
-        // Update upload record with success and channel info
-        await this.supabaseService.updateYouTubeUpload(uploadId, {
+        // Persist success with retries — YouTube already has the video; DB must not stay on `processing`.
+        console.log(`💾 Persisting upload success to DB: uploadId=${uploadId} videoId=${videoId}`);
+        await this.supabaseService.updateYouTubeUploadWithRetry(uploadId, {
           status: 'uploaded',
           youtube_video_id: videoId,
           youtube_channel_id: channelId,
@@ -340,11 +341,18 @@ export class UploadProcessorService {
         const errorMessage = isTokenError 
           ? 'YouTube account connection expired. Please reconnect your YouTube account in the settings.'
           : (error.message || 'Unknown error occurred');
-          
-        await this.supabaseService.updateYouTubeUpload(uploadId, {
-          status: 'failed',
-          error_message: errorMessage,
-        });
+
+        try {
+          await this.supabaseService.updateYouTubeUploadWithRetry(uploadId, {
+            status: 'failed',
+            error_message: errorMessage,
+          });
+        } catch (dbErr: any) {
+          console.error(
+            `❌ CRITICAL: Could not persist failed status for ${uploadId} — row may stay "processing":`,
+            dbErr?.message || dbErr
+          );
+        }
 
         throw error;
       }
