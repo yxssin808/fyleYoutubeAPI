@@ -490,15 +490,8 @@ export const archiveYouTubeUploadController = async (req: Request, res: Response
       });
     }
 
-    // Update archived status
-    const { data: updatedUpload, error: updateError } = await supabaseService.updateYouTubeUpload(
-      sanitizedUploadId,
-      { archived }
-    );
-
-    if (updateError) {
-      throw updateError;
-    }
+    // Update archived status (service returns the row or throws — not { data, error })
+    const updatedUpload = await supabaseService.updateYouTubeUpload(sanitizedUploadId, { archived });
 
     res.json({
       success: true,
@@ -600,14 +593,7 @@ export const updateYouTubeUploadController = async (req: Request, res: Response)
     if (tags !== undefined) updateData.tags = sanitizedTags.length > 0 ? sanitizedTags : null;
     if (privacyStatus !== undefined) updateData.privacy_status = sanitizedPrivacyStatus;
 
-    const { data: updatedUpload, error: updateError } = await supabaseService.updateYouTubeUpload(
-      sanitizedUploadId,
-      updateData
-    );
-
-    if (updateError) {
-      throw updateError;
-    }
+    const updatedUpload = await supabaseService.updateYouTubeUpload(sanitizedUploadId, updateData);
 
     // If video is already uploaded to YouTube, update it there too
     if (upload.youtube_video_id && upload.status === 'uploaded') {
