@@ -399,11 +399,19 @@ export class UploadProcessorService {
       throw new Error('Unauthorized: You do not own this upload');
     }
 
-    // If video was uploaded, delete from YouTube
-    if (upload.youtube_video_id && upload.status === 'uploaded') {
+    // If we have a YouTube video id, always try to remove it from the channel (any status:
+    // covers "uploaded" as well as stuck processing / inconsistent DB state).
+    if (upload.youtube_video_id) {
       try {
         const tokens = await this.oauthService.getUserTokens(userId);
-        if (tokens) {
+        if (!tokens?.access_token) {
+          console.warn(
+            `⚠️ Cannot delete YouTube video ${upload.youtube_video_id}: no OAuth tokens (status=${upload.status}). DB row will still be removed; remove the video manually in YouTube Studio if needed.`
+          );
+        } else {
+          console.log(
+            `🗑️ Attempting YouTube delete for video ${upload.youtube_video_id} (upload status=${upload.status})`
+          );
           await this.youtubeService.initialize(tokens.access_token, tokens.refresh_token);
           await this.youtubeService.deleteVideo(upload.youtube_video_id);
           console.log(`🗑️ Deleted YouTube video: ${upload.youtube_video_id}`);
@@ -413,10 +421,20 @@ export class UploadProcessorService {
         if (error.status === 404 || error.message?.includes('cannot be found') || error.message?.includes('videoNotFound')) {
           console.log(`⚠️ Video ${upload.youtube_video_id} not found - may already be deleted. Continuing...`);
         } else {
-          console.error('Failed to delete YouTube video:', error.message || error);
+          console.error(
+            `❌ YouTube delete failed for ${upload.youtube_video_id} (status=${upload.status}):`,
+            error.message || error
+          );
+          console.error(
+            '   Fyle DB entry will still be deleted; user may need to remove the video manually in YouTube Studio.'
+          );
         }
         // Continue with database deletion even if YouTube deletion fails
       }
+    } else {
+      console.log(
+        `🗑️ No youtube_video_id for upload ${uploadId} (status=${upload.status}) — skipping YouTube API, deleting DB row only`
+      );
     }
 
     // Delete from database
