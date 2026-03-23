@@ -12,6 +12,56 @@ function sanitizeString(input: string): string {
   return input.trim().replace(/[<>]/g, '');
 }
 
+const MAX_TITLE_TEMPLATE_LEN = 200;
+const MAX_TAGS_COUNT = 30;
+const MAX_SINGLE_TAG_LEN = 50;
+const MAX_TAGS_COMBINED_CHARS = 500;
+
+type PrivacyStatus = 'public' | 'unlisted' | 'private';
+
+function normalizePrivacy(input: unknown): PrivacyStatus | null | undefined {
+  if (input === undefined) return undefined;
+  if (input === null || input === '') return null;
+  const s = String(input).toLowerCase().trim();
+  if (s === 'public' || s === 'unlisted' || s === 'private') return s;
+  return undefined;
+}
+
+/** Returns normalized tag list; empty array if input invalid. */
+function normalizeDefaultTags(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of input) {
+    if (typeof item !== 'string') continue;
+    const t = sanitizeString(item).slice(0, MAX_SINGLE_TAG_LEN);
+    if (!t) continue;
+    const k = t.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+    if (out.length >= MAX_TAGS_COUNT) break;
+  }
+  let combined = '';
+  const limited: string[] = [];
+  for (const t of out) {
+    const next = combined.length ? `${combined},${t}` : t;
+    if (next.length > MAX_TAGS_COMBINED_CHARS) break;
+    limited.push(t);
+    combined = next;
+  }
+  return limited;
+}
+
+function normalizeTitleTemplate(input: unknown): string | null | undefined {
+  if (input === undefined) return undefined;
+  if (input === null) return null;
+  if (typeof input !== 'string') return undefined;
+  const s = sanitizeString(input);
+  if (!s) return null;
+  return s.slice(0, MAX_TITLE_TEMPLATE_LEN);
+}
+
 /**
  * GET /api/youtube/templates
  * Get user's templates and system templates
@@ -72,7 +122,8 @@ export const getTemplatesController = async (req: Request, res: Response) => {
  */
 export const createTemplateController = async (req: Request, res: Response) => {
   try {
-    const { userId: userIdFromBody, name, description } = req.body;
+    const { userId: userIdFromBody, name, description, title_template, default_tags, privacy_status } =
+      req.body;
     const userId = (req as any).userId as string | undefined ?? userIdFromBody;
 
     if (!userId || !name || !description) {
@@ -100,6 +151,40 @@ export const createTemplateController = async (req: Request, res: Response) => {
       });
     }
 
+    const insertRow: Record<string, unknown> = {
+      user_id: sanitizedUserId,
+      name: sanitizedName,
+      description: sanitizedDescription,
+      is_default: false,
+      is_system: false,
+    };
+
+    if (title_template !== undefined) {
+      const tt = normalizeTitleTemplate(title_template);
+      if (tt === undefined) {
+        return res.status(400).json({
+          error: 'Invalid title_template',
+          message: 'title_template must be a string or null',
+        });
+      }
+      insertRow.title_template = tt;
+    }
+
+    if (default_tags !== undefined) {
+      insertRow.default_tags = normalizeDefaultTags(default_tags);
+    }
+
+    if (privacy_status !== undefined) {
+      const p = normalizePrivacy(privacy_status);
+      if (p === undefined && privacy_status !== null && privacy_status !== '') {
+        return res.status(400).json({
+          error: 'Invalid privacy_status',
+          message: 'privacy_status must be public, unlisted, private, or null',
+        });
+      }
+      insertRow.privacy_status = p ?? null;
+    }
+
     const supabaseService = new SupabaseService();
     const supabase = supabaseService['client'] || (await import('../lib/supabaseClient.js')).getSupabaseClient();
 
@@ -111,13 +196,7 @@ export const createTemplateController = async (req: Request, res: Response) => {
 
     const { data: template, error } = await supabase
       .from('youtube_description_templates')
-      .insert({
-        user_id: sanitizedUserId,
-        name: sanitizedName,
-        description: sanitizedDescription,
-        is_default: false,
-        is_system: false,
-      })
+      .insert(insertRow)
       .select()
       .single();
 
@@ -149,17 +228,26 @@ export const createTemplateController = async (req: Request, res: Response) => {
 export const updateTemplateController = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { userId: userIdFromBody, name, description, is_default } = req.body;
+    const {
+      userId: userIdFromBody,
+      name,
+      description,
+      is_default,
+      title_template,
+      default_tags,
+      privacy_status,
+    } = req.body;
     const userId = (req as any).userId as string | undefined ?? userIdFromBody;
 
-    console.log('📝 Update template request:', { 
-      id, 
-      userId, 
-      name: name !== undefined, 
-      description: description !== undefined, 
+    console.log('📝 Update template request:', {
+      id,
+      userId,
+      name: name !== undefined,
+      description: description !== undefined,
       is_default,
-      is_defaultType: typeof is_default,
-      body: req.body 
+      title_template: title_template !== undefined,
+      default_tags: default_tags !== undefined,
+      privacy_status: privacy_status !== undefined,
     });
 
     if (!userId || !id) {
@@ -208,6 +296,29 @@ export const updateTemplateController = async (req: Request, res: Response) => {
     if (description !== undefined) {
       updateData.description = sanitizeString(description).trim();
     }
+    if (title_template !== undefined) {
+      const tt = normalizeTitleTemplate(title_template);
+      if (tt === undefined) {
+        return res.status(400).json({
+          error: 'Invalid title_template',
+          message: 'title_template must be a string or null',
+        });
+      }
+      updateData.title_template = tt;
+    }
+    if (default_tags !== undefined) {
+      updateData.default_tags = normalizeDefaultTags(default_tags);
+    }
+    if (privacy_status !== undefined) {
+      const p = normalizePrivacy(privacy_status);
+      if (p === undefined && privacy_status !== null && privacy_status !== '') {
+        return res.status(400).json({
+          error: 'Invalid privacy_status',
+          message: 'privacy_status must be public, unlisted, private, or null',
+        });
+      }
+      updateData.privacy_status = p ?? null;
+    }
     // Handle is_default flag (can be boolean true/false or undefined)
     if (is_default !== undefined) {
       const shouldBeDefault = is_default === true || is_default === 'true';
@@ -232,15 +343,18 @@ export const updateTemplateController = async (req: Request, res: Response) => {
     // Check if we have at least one field to update
     // is_default is always valid if provided, even if it's false
     if (Object.keys(updateData).length === 0) {
-      console.error('No valid fields to update:', { name, description, is_default, body: req.body });
+      console.error('No valid fields to update:', { body: req.body });
       return res.status(400).json({
         error: 'No valid fields to update',
-        message: 'At least one field (name, description, or is_default) must be provided',
-        received: { 
-          name: name !== undefined, 
-          description: description !== undefined, 
+        message:
+          'At least one field (name, description, is_default, title_template, default_tags, privacy_status) must be provided',
+        received: {
+          name: name !== undefined,
+          description: description !== undefined,
           is_default: is_default !== undefined,
-          body: req.body 
+          title_template: title_template !== undefined,
+          default_tags: default_tags !== undefined,
+          privacy_status: privacy_status !== undefined,
         },
       });
     }
