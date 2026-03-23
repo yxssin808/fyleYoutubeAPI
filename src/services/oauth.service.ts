@@ -239,10 +239,14 @@ export class OAuthService {
         youtube_token_expires_at: expiresAt,
       };
 
-      // Add channel info if provided
+      // Only set channel fields when we have real values — avoids wiping title on failed channels.list during OAuth
       if (channelInfo) {
-        updateData.youtube_channel_id = channelInfo.channelId || null;
-        updateData.youtube_channel_title = channelInfo.channelTitle || null;
+        if (channelInfo.channelId) {
+          updateData.youtube_channel_id = channelInfo.channelId;
+        }
+        if (channelInfo.channelTitle) {
+          updateData.youtube_channel_title = channelInfo.channelTitle;
+        }
       }
 
       const { error } = await supabase
@@ -287,6 +291,72 @@ export class OAuthService {
     }
 
     return true;
+  }
+
+  /**
+   * Fetch channel id/title from YouTube (mine: true) and persist to profiles.
+   * Used when tokens exist but DB row never got channel metadata (legacy connects, transient API errors).
+   */
+  async syncChannelMetadataFromApi(
+    userId: string
+  ): Promise<{ channelId: string | null; channelTitle: string | null }> {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return { channelId: null, channelTitle: null };
+    }
+
+    const tokens = await this.getUserTokens(userId);
+    if (!tokens?.access_token) {
+      return { channelId: null, channelTitle: null };
+    }
+
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      console.warn('syncChannelMetadataFromApi: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing');
+      return { channelId: null, channelTitle: null };
+    }
+
+    try {
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_REDIRECT_URI || 'http://localhost'
+      );
+      oauth2Client.setCredentials({
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+      });
+
+      const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+      const channelResponse = await youtube.channels.list({
+        part: ['snippet', 'id'],
+        mine: true,
+      });
+
+      const channel = channelResponse.data.items?.[0];
+      if (!channel) {
+        return { channelId: null, channelTitle: null };
+      }
+
+      const channelId = channel.id || null;
+      const channelTitle = channel.snippet?.title || null;
+
+      const patch: { youtube_channel_id?: string; youtube_channel_title?: string } = {};
+      if (channelId) patch.youtube_channel_id = channelId;
+      if (channelTitle) patch.youtube_channel_title = channelTitle;
+
+      if (Object.keys(patch).length > 0) {
+        const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
+        if (error) {
+          console.warn('syncChannelMetadataFromApi: profile update failed:', error.message);
+        }
+      }
+
+      return { channelId, channelTitle };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn('syncChannelMetadataFromApi failed:', msg);
+      return { channelId: null, channelTitle: null };
+    }
   }
 }
 

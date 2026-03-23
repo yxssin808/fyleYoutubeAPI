@@ -269,10 +269,35 @@ export const statusController = async (req: Request, res: Response) => {
     
     try {
       const hasTokens = await oauthService.hasValidTokens(userId);
-      
+
+      let channelTitle: string | null = null;
+      let channelId: string | null = null;
+      if (hasTokens) {
+        const { getSupabaseClient } = await import('../lib/supabaseClient.js');
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('youtube_channel_title, youtube_channel_id')
+            .eq('id', userId)
+            .single();
+          channelTitle = profile?.youtube_channel_title ?? null;
+          channelId = profile?.youtube_channel_id ?? null;
+        }
+
+        // Backfill: connected users often have empty title from older OAuth or failed channels.list
+        if (!channelTitle?.trim() || !channelId?.trim()) {
+          const synced = await oauthService.syncChannelMetadataFromApi(userId);
+          if (synced.channelId) channelId = synced.channelId;
+          if (synced.channelTitle) channelTitle = synced.channelTitle;
+        }
+      }
+
       res.json({
         success: true,
         connected: hasTokens,
+        channelTitle,
+        channelId,
       });
     } catch (serviceError: any) {
       // Don't log errors for missing tokens - that's expected if account is not connected
