@@ -25,11 +25,11 @@ const PLAN_LIMITS: Record<string, PlanLimits> = {
     allowedFormats: ['mp3'],
   },
   bedroom: {
-    maxUploadsPerMonth: 30,
+    maxUploadsPerMonth: 31,
     allowedFormats: ['mp3'],
   },
   pro: {
-    maxUploadsPerMonth: 'unlimited',
+    maxUploadsPerMonth: 62,
     allowedFormats: ['mp3', 'wav'],
   },
   studio: {

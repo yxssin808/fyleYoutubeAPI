@@ -3,19 +3,12 @@ name: YouTube API CI
 on:
   push:
     branches: [main]
-    paths:
-      - 'fyleYoutubeAPI/**'
   pull_request:
     branches: [main]
-    paths:
-      - 'fyleYoutubeAPI/**'
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: fyleYoutubeAPI
 
     steps:
       - name: Checkout code
@@ -26,7 +19,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: fyleYoutubeAPI/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci

@@ -10,6 +10,7 @@ import { youtubeRouter } from './routes/youtube.routes.js';
 
 const envFiles = ['.env.local', '.env'];
 let envLoaded = false;
+const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT;
 
 for (const file of envFiles) {
   const envPath = path.resolve(process.cwd(), file);
@@ -22,7 +23,7 @@ for (const file of envFiles) {
 
 if (!envLoaded) {
   // This is normal on Railway/production - environment variables come from Railway
-  if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
+  if (isProduction) {
     console.log('ℹ️ Running in production - environment variables loaded from Railway/host');
   } else {
     console.warn('⚠️ No .env.local or .env file found. Environment variables must come from the host.');
@@ -36,15 +37,23 @@ if (!envLoaded) {
 }
 
 // Debug: Check Google OAuth environment variables on startup
-console.log('🔍 Google OAuth Environment Variables Check:', {
-  hasGOOGLE_CLIENT_ID: !!process.env.GOOGLE_CLIENT_ID,
-  hasGOOGLE_CLIENT_SECRET: !!process.env.GOOGLE_CLIENT_SECRET,
-  hasGOOGLE_REDIRECT_URI: !!process.env.GOOGLE_REDIRECT_URI,
-  clientIdLength: process.env.GOOGLE_CLIENT_ID?.length || 0,
-  clientSecretLength: process.env.GOOGLE_CLIENT_SECRET?.length || 0,
-  clientIdPreview: process.env.GOOGLE_CLIENT_ID ? `${process.env.GOOGLE_CLIENT_ID.substring(0, 30)}...` : 'MISSING',
-  allGoogleKeys: Object.keys(process.env).filter(key => key.includes('GOOGLE')).join(', '),
-});
+if (!isProduction) {
+  console.log('🔍 Google OAuth Environment Variables Check:', {
+    hasGOOGLE_CLIENT_ID: !!process.env.GOOGLE_CLIENT_ID,
+    hasGOOGLE_CLIENT_SECRET: !!process.env.GOOGLE_CLIENT_SECRET,
+    hasGOOGLE_REDIRECT_URI: !!process.env.GOOGLE_REDIRECT_URI,
+    clientIdLength: process.env.GOOGLE_CLIENT_ID?.length || 0,
+    clientSecretLength: process.env.GOOGLE_CLIENT_SECRET?.length || 0,
+    clientIdPreview: process.env.GOOGLE_CLIENT_ID ? `${process.env.GOOGLE_CLIENT_ID.substring(0, 30)}...` : 'MISSING',
+    allGoogleKeys: Object.keys(process.env).filter(key => key.includes('GOOGLE')).join(', '),
+  });
+} else {
+  console.log('🔍 Google OAuth Environment Variables Check:', {
+    hasGOOGLE_CLIENT_ID: !!process.env.GOOGLE_CLIENT_ID,
+    hasGOOGLE_CLIENT_SECRET: !!process.env.GOOGLE_CLIENT_SECRET,
+    hasGOOGLE_REDIRECT_URI: !!process.env.GOOGLE_REDIRECT_URI,
+  });
+}
 
 const app = express();
 const PORT = Number(process.env.PORT || 4001);
